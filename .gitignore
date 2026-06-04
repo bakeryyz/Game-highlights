@@ -1,0 +1,22 @@
+# Environment
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# Cached game data (raw API responses)
+data/game_cache/
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
