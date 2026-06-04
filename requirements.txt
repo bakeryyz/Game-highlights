@@ -1,0 +1,4 @@
+MLB-StatsAPI
+streamlit
+anthropic
+python-dotenv
