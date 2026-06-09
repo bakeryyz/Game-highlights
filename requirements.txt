@@ -1,4 +1,5 @@
 MLB-StatsAPI
-streamlit
+flask
 anthropic
 python-dotenv
+pytest

@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Game Highlights</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="hero">
+    <h1>⚾ Game Highlights</h1>
+    <p class="subtitle">Search for any MLB game to get the full play-by-play story</p>
+
+    <form class="search-form" action="/search" method="get">
+      <input
+        type="text"
+        name="q"
+        class="search-input"
+        placeholder="e.g. Braves June 3 2026 or Dodgers vs Red Sox June 1 2024"
+        autofocus
+      >
+      <button type="submit" class="search-btn">Search</button>
+    </form>
+
+    {% if error %}
+    <p class="error">{{ error }}</p>
+    {% endif %}
+  </div>
+</body>
+</html>

@@ -1,0 +1,37 @@
+[
+  {
+    "result": {"event": "Strikeout", "eventType": "strikeout", "description": "Chris Sale strikes out Freddie Freeman swinging.", "awayScore": 0, "homeScore": 0, "rbi": 0, "isOut": true},
+    "about": {"atBatIndex": 0, "halfInning": "top", "inning": 1, "isComplete": true, "isScoringPlay": false, "captivatingIndex": 10},
+    "matchup": {"batter": {"id": 457759, "fullName": "Freddie Freeman"}, "pitcher": {"id": 519242, "fullName": "Chris Sale"}}
+  },
+  {
+    "result": {"event": "Home Run", "eventType": "home_run", "description": "Shohei Ohtani homers (22) on a fly ball to left center field. Mookie Betts scores.", "awayScore": 2, "homeScore": 0, "rbi": 2, "isOut": false},
+    "about": {"atBatIndex": 1, "halfInning": "top", "inning": 3, "isComplete": true, "isScoringPlay": true, "captivatingIndex": 82},
+    "matchup": {"batter": {"id": 660271, "fullName": "Shohei Ohtani"}, "pitcher": {"id": 519242, "fullName": "Chris Sale"}}
+  },
+  {
+    "result": {"event": "Single", "eventType": "single", "description": "Rafael Devers singles on a line drive to center fielder Cody Bellinger. Triston Casas scores.", "awayScore": 2, "homeScore": 1, "rbi": 1, "isOut": false},
+    "about": {"atBatIndex": 2, "halfInning": "bottom", "inning": 5, "isComplete": true, "isScoringPlay": true, "captivatingIndex": 50},
+    "matchup": {"batter": {"id": 646240, "fullName": "Rafael Devers"}, "pitcher": {"id": 605483, "fullName": "Kenley Jansen"}}
+  },
+  {
+    "result": {"event": "Double", "eventType": "double", "description": "Jarren Duran doubles on a line drive to left fielder Chris Taylor. Rafael Devers scores. Tying run scores.", "awayScore": 2, "homeScore": 2, "rbi": 1, "isOut": false},
+    "about": {"atBatIndex": 3, "halfInning": "bottom", "inning": 6, "isComplete": true, "isScoringPlay": true, "captivatingIndex": 75},
+    "matchup": {"batter": {"id": 680776, "fullName": "Jarren Duran"}, "pitcher": {"id": 605483, "fullName": "Kenley Jansen"}}
+  },
+  {
+    "result": {"event": "Single", "eventType": "single", "description": "Triston Casas singles on a ground ball to shortstop. Jarren Duran scores. Red Sox take the lead.", "awayScore": 2, "homeScore": 3, "rbi": 1, "isOut": false},
+    "about": {"atBatIndex": 4, "halfInning": "bottom", "inning": 6, "isComplete": true, "isScoringPlay": true, "captivatingIndex": 85},
+    "matchup": {"batter": {"id": 673490, "fullName": "Triston Casas"}, "pitcher": {"id": 605483, "fullName": "Kenley Jansen"}}
+  },
+  {
+    "result": {"event": "Home Run", "eventType": "home_run", "description": "Shohei Ohtani homers (23) on a fly ball to right field. Dodgers retake the lead.", "awayScore": 4, "homeScore": 3, "rbi": 1, "isOut": false},
+    "about": {"atBatIndex": 5, "halfInning": "top", "inning": 8, "isComplete": true, "isScoringPlay": true, "captivatingIndex": 95},
+    "matchup": {"batter": {"id": 660271, "fullName": "Shohei Ohtani"}, "pitcher": {"id": 605483, "fullName": "Kenley Jansen"}}
+  },
+  {
+    "result": {"event": "Strikeout", "eventType": "strikeout", "description": "Evan Carter strikes out swinging. Game over.", "awayScore": 4, "homeScore": 3, "rbi": 0, "isOut": true},
+    "about": {"atBatIndex": 6, "halfInning": "bottom", "inning": 9, "isComplete": true, "isScoringPlay": false, "captivatingIndex": 80},
+    "matchup": {"batter": {"id": 694192, "fullName": "Evan Carter"}, "pitcher": {"id": 708227, "fullName": "Ryan Brasier"}}
+  }
+]

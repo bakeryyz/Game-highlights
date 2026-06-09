@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Choose a Game — Game Highlights</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="container">
+    <a href="/" class="back-link">← New search</a>
+    <h2>Multiple games found for "{{ query }}"</h2>
+    <p class="subtitle">Pick the one you want:</p>
+
+    <div class="candidate-list">
+      {% for c in candidates %}
+      <a class="candidate-card" href="/game/{{ c.game_id }}">
+        <div class="candidate-teams">{{ c.away_name }} @ {{ c.home_name }}</div>
+        <div class="candidate-meta">
+          {{ c.date }}
+          {% if c.status == "Final" %}
+            — Final: {{ c.away_score }}–{{ c.home_score }}
+          {% else %}
+            — {{ c.status }}
+          {% endif %}
+          {% if c.game_num > 1 %} (Game {{ c.game_num }}){% endif %}
+        </div>
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+</body>
+</html>
