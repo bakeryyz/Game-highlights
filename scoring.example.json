@@ -1,0 +1,19 @@
+{
+  "singles": 1.0,
+  "doubles": 2.0,
+  "triples": 3.0,
+  "homeRuns": 4.0,
+  "rbi": 1.0,
+  "runs": 1.0,
+  "walks": 0.5,
+  "hbp": 0.5,
+  "stolenBases": 2.0,
+  "strikeouts_batter": -0.5,
+  "inningsPitched": 3.0,
+  "strikeouts_pitched": 1.0,
+  "earnedRuns": -1.0,
+  "hits_allowed": -0.5,
+  "walks_allowed": -0.5,
+  "wins": 5.0,
+  "saves": 5.0
+}

@@ -196,5 +196,29 @@ def narrative(game_id):
     return jsonify({"text": text})
 
 
+@app.route("/fantasy")
+def fantasy():
+    from data_sources.fantasy.base import get_provider, ProviderNotConfigured
+    try:
+        provider = get_provider()
+        matchup = provider.get_matchup()
+        return render_template(
+            "fantasy.html",
+            matchup=matchup,
+            attribution=provider.attribution,
+            attribution_url="https://sports.yahoo.com/fantasy/",
+            error=None,
+        )
+    except ProviderNotConfigured as e:
+        return render_template("fantasy.html", matchup=None, error=str(e),
+                               attribution="Fantasy data provided by Yahoo Fantasy",
+                               attribution_url="https://sports.yahoo.com/fantasy/")
+    except Exception as e:
+        return render_template("fantasy.html", matchup=None,
+                               error=f"Unexpected error: {e}",
+                               attribution="Fantasy data provided by Yahoo Fantasy",
+                               attribution_url="https://sports.yahoo.com/fantasy/")
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5001, debug=False)

@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>My Fantasy Team — Game Highlights</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+  <nav class="top-nav">
+    <span class="nav-brand">⚾ Game Highlights</span>
+    <a href="/scoreboard" class="nav-link">Scoreboard</a>
+    <a href="/search-page" class="nav-link">Search</a>
+    <a href="/fantasy" class="nav-link nav-link-active">Fantasy</a>
+  </nav>
+
+  <div class="container">
+
+    {% if error %}
+    <!-- Not configured or error state -->
+    <div class="fantasy-setup">
+      <h2>My Fantasy Team</h2>
+      <div class="setup-box">
+        <p class="setup-error">{{ error }}</p>
+        <h3>Setup steps</h3>
+        <ol class="setup-steps">
+          <li>Register a <strong>read-only</strong> Yahoo app at
+            <a href="https://developer.yahoo.com/apps/create/" target="_blank">developer.yahoo.com/apps/create</a></li>
+          <li>Add to <code>.env</code>:
+            <pre>YAHOO_CONSUMER_KEY=your_key
+YAHOO_CONSUMER_SECRET=your_secret
+YAHOO_LEAGUE_ID=431.l.12345
+YAHOO_TEAM_KEY=431.l.12345.t.3
+YAHOO_TOKEN_FILE=.yahoo_token.json</pre>
+          </li>
+          <li>Run once: <code>python scripts/yahoo_auth.py</code></li>
+          <li>Reload this page</li>
+        </ol>
+      </div>
+    </div>
+
+    {% else %}
+    {% set me = matchup.me %}
+    {% set opp = matchup.opponent %}
+
+    <!-- Matchup Banner -->
+    <div class="matchup-banner {% if matchup.margin > 0 %}banner-winning{% elif matchup.margin < 0 %}banner-losing{% else %}banner-tied{% endif %}">
+      <div class="matchup-teams">
+        <div class="matchup-team">
+          <div class="matchup-team-name">{{ me.name }}</div>
+          <div class="matchup-pts">{{ "%.1f"|format(me.total_points) }}</div>
+        </div>
+        <div class="matchup-center">
+          <div class="matchup-period">{{ matchup.period }}</div>
+          <div class="matchup-status">{{ matchup.status_label }}</div>
+        </div>
+        <div class="matchup-team">
+          <div class="matchup-team-name">{{ opp.name }}</div>
+          <div class="matchup-pts">{{ "%.1f"|format(opp.total_points) }}</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- My Starters -->
+    <h2 class="section-title">My Team — {{ me.name }}</h2>
+    <div class="fantasy-table-wrap">
+      <table class="fantasy-table">
+        <thead>
+          <tr>
+            <th>Slot</th><th>Player</th><th>Team</th>
+            <th>Today</th><th>Stats</th><th>Clip</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in me.starters %}
+          <tr class="{% if p.playing_today %}player-active{% endif %}">
+            <td class="slot-cell">{{ p.lineup_slot }}</td>
+            <td class="player-name">
+              {{ p.name }}
+              {% if not p.mlbam_id %}<span class="no-id-badge" title="MLBAM id not resolved">?</span>{% endif %}
+            </td>
+            <td class="team-abbr">{{ p.pro_team }}</td>
+            <td class="pts-cell {% if p.today_points > 0 %}pts-pos{% elif p.today_points < 0 %}pts-neg{% endif %}">
+              {{ "%.1f"|format(p.today_points) }}
+            </td>
+            <td class="stats-cell">{{ p.stat_summary() }}</td>
+            <td class="clip-cell">
+              {% if p.video_urls %}
+              <button class="watch-btn" onclick="toggleVideo(this, '{{ p.video_urls[0] }}')">▶</button>
+              {% else %}—{% endif %}
+            </td>
+          </tr>
+          {% if p.video_urls %}
+          <tr class="video-row" style="display:none" id="vrow-{{ loop.index }}">
+            <td colspan="6">
+              <video controls autoplay preload="none"
+                style="width:100%;max-width:720px;border-radius:8px;margin:6px 0"></video>
+            </td>
+          </tr>
+          {% endif %}
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Bench / IL -->
+    {% if me.bench %}
+    <details class="bench-section">
+      <summary>Bench / IL ({{ me.bench|length }} players)</summary>
+      <table class="fantasy-table">
+        <thead>
+          <tr><th>Slot</th><th>Player</th><th>Team</th><th>Today</th><th>Stats</th></tr>
+        </thead>
+        <tbody>
+          {% for p in me.bench %}
+          <tr>
+            <td class="slot-cell">{{ p.lineup_slot }}</td>
+            <td class="player-name">{{ p.name }}</td>
+            <td class="team-abbr">{{ p.pro_team }}</td>
+            <td class="pts-cell">{{ "%.1f"|format(p.today_points) }}</td>
+            <td class="stats-cell">{{ p.stat_summary() }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </details>
+    {% endif %}
+
+    <!-- Opponent -->
+    <h2 class="section-title opp-title">Opponent — {{ opp.name }}</h2>
+    <div class="fantasy-table-wrap">
+      <table class="fantasy-table">
+        <thead>
+          <tr><th>Slot</th><th>Player</th><th>Team</th><th>Today</th><th>Stats</th></tr>
+        </thead>
+        <tbody>
+          {% for p in opp.starters %}
+          <tr>
+            <td class="slot-cell">{{ p.lineup_slot }}</td>
+            <td class="player-name">{{ p.name }}</td>
+            <td class="team-abbr">{{ p.pro_team }}</td>
+            <td class="pts-cell {% if p.today_points > 0 %}pts-pos{% endif %}">{{ "%.1f"|format(p.today_points) }}</td>
+            <td class="stats-cell">{{ p.stat_summary() }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+
+    <!-- Attribution -->
+    <div class="fantasy-attribution">
+      <a href="{{ attribution_url }}" target="_blank" rel="noopener">{{ attribution }}</a>
+    </div>
+
+  </div>
+
+  <script>
+    function toggleVideo(btn, url) {
+      // Find the video row immediately after this table row
+      const tr = btn.closest('tr');
+      const next = tr.nextElementSibling;
+      if (!next || !next.classList.contains('video-row')) return;
+      const video = next.querySelector('video');
+      if (next.style.display === 'none') {
+        video.src = url;
+        next.style.display = '';
+        btn.textContent = '⏹';
+        video.play();
+      } else {
+        video.pause(); video.src = '';
+        next.style.display = 'none';
+        btn.textContent = '▶';
+      }
+    }
+  </script>
+</body>
+</html>

@@ -14,6 +14,13 @@ build/
 # Cached game data (raw API responses)
 data/game_cache/
 
+# Yahoo OAuth token (secret — never commit)
+.yahoo_token.json
+*token*.json
+
+# Player crosswalk cache
+data/crosswalk.json
+
 # macOS
 .DS_Store
 

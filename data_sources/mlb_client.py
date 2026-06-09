@@ -250,3 +250,20 @@ def load_game(game_id: int | str) -> Game:
         plays=plays,
         clips=unmatched,
     )
+
+
+def highlights_for_player(game_pk: int, mlbam_id: int) -> list[str]:
+    """
+    Return clip URLs from a game that feature a specific player (by MLBAM id).
+    Reuses the existing highlight pipeline; only returns high-confidence matches
+    where the player's id appears in the clip's keywordsAll player_id entries.
+    """
+    gid = str(game_pk)
+    hl_raw = cache.load(gid, 'highlights')
+    if hl_raw is None:
+        content = statsapi.get('game_content', {'gamePk': gid})
+        hl_raw = content.get('highlights', {}).get('highlights', {}).get('items', [])
+        cache.save(gid, hl_raw, 'highlights')
+
+    clips = _parse_clips(hl_raw)
+    return [c.url for c in clips if mlbam_id in c.player_ids]

@@ -3,3 +3,8 @@ flask
 anthropic
 python-dotenv
 pytest
+yahoo_fantasy_api
+yahoo_oauth
+baseball_id
+streamlit
+streamlit-autorefresh
