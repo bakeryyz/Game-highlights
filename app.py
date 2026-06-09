@@ -1,9 +1,12 @@
 import os
+from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from flask import Flask, render_template, request, redirect, url_for, jsonify
 from dotenv import load_dotenv
 
 load_dotenv()
 
+import statsapi
 from core.highlight_detector import score_plays, is_highlight
 from core.narrative import generate_narrative
 from data_sources.mlb_client import find_games, load_game
@@ -13,6 +16,47 @@ app = Flask(__name__)
 
 @app.route("/")
 def index():
+    return redirect(url_for("scoreboard"))
+
+
+@app.route("/scoreboard")
+def scoreboard():
+    date_str = request.args.get("date", date.today().strftime("%Y-%m-%d"))
+    try:
+        selected = date.fromisoformat(date_str)
+    except ValueError:
+        selected = date.today()
+
+    # Build a 7-day strip centred on today
+    today = date.today()
+    strip = [today + timedelta(days=i) for i in range(-3, 4)]
+
+    games = statsapi.schedule(date=selected.strftime("%Y-%m-%d"), sportId=1)
+
+    # Convert UTC game times to local system timezone
+    local_tz = datetime.now().astimezone().tzinfo
+    tz_name = datetime.now().astimezone().strftime("%Z")
+    for g in games:
+        try:
+            utc_dt = datetime.fromisoformat(g['game_datetime'].replace("Z", "+00:00"))
+            local_dt = utc_dt.astimezone(local_tz)
+            g['local_time'] = local_dt.strftime("%-I:%M %p")
+        except Exception:
+            g['local_time'] = g.get('game_datetime', '')[:16]
+
+    return render_template(
+        "scoreboard.html",
+        games=games,
+        selected=selected,
+        strip=strip,
+        today=today,
+        timedelta=timedelta,
+        tz_name=tz_name,
+    )
+
+
+@app.route("/search-page")
+def search_page():
     return render_template("index.html")
 
 

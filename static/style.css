@@ -1,5 +1,122 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* ---- Top Nav ---- */
+.top-nav {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  padding: 0.9rem 1.5rem;
+  background: #0f1117;
+  border-bottom: 1px solid #1e2130;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+.nav-brand { font-weight: 800; font-size: 1rem; color: #e8e8e8; margin-right: auto; }
+.nav-link { color: #666; text-decoration: none; font-size: 0.9rem; font-weight: 500; }
+.nav-link:hover { color: #e8e8e8; }
+.nav-link-active { color: #2d8a4e; }
+
+/* ---- Date Strip ---- */
+.date-strip-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  background: #0f1117;
+  border-bottom: 1px solid #1e2130;
+  overflow: hidden;
+}
+.date-arrow {
+  color: #555;
+  text-decoration: none;
+  font-size: 1.4rem;
+  padding: 0 0.3rem;
+  flex-shrink: 0;
+  line-height: 1;
+}
+.date-arrow:hover { color: #e8e8e8; }
+.date-strip {
+  display: flex;
+  gap: 0.4rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+  flex: 1;
+  justify-content: center;
+}
+.date-strip::-webkit-scrollbar { display: none; }
+.date-pill {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.4rem 0.8rem;
+  border-radius: 8px;
+  text-decoration: none;
+  color: #666;
+  font-size: 0.78rem;
+  min-width: 48px;
+  transition: background 0.15s, color 0.15s;
+  flex-shrink: 0;
+}
+.date-pill:hover { background: #1a1d27; color: #ccc; }
+.date-pill-today { color: #aaa; }
+.date-pill-active { background: #2d8a4e; color: #fff !important; }
+.date-pill-day { font-weight: 500; text-transform: uppercase; letter-spacing: 0.04em; }
+.date-pill-num { font-size: 1.1rem; font-weight: 700; margin-top: 1px; }
+
+/* ---- Scoreboard ---- */
+.sb-container { max-width: 900px; margin: 0 auto; padding: 1.5rem; }
+.sb-header { display: flex; align-items: baseline; gap: 0.75rem; margin-bottom: 1.2rem; }
+.sb-title { font-size: 1.2rem; font-weight: 700; }
+.sb-count { font-size: 0.82rem; color: #555; }
+.sb-empty { color: #555; text-align: center; padding: 3rem 0; }
+
+.games-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 0.75rem;
+}
+
+.game-card {
+  display: block;
+  background: #1a1d27;
+  border: 1px solid #252833;
+  border-radius: 12px;
+  padding: 1rem 1.1rem;
+  text-decoration: none;
+  transition: border-color 0.2s, transform 0.1s;
+  cursor: pointer;
+}
+.game-card:hover { border-color: #2d8a4e; transform: translateY(-1px); }
+.game-card-final:hover { border-color: #2d8a4e; }
+
+.game-status { font-size: 0.72rem; margin-bottom: 0.6rem; }
+.status-final { color: #555; text-transform: uppercase; letter-spacing: 0.05em; }
+.status-live { color: #e05c5c; font-weight: 600; }
+.status-time { color: #888; }
+
+.game-matchup { display: flex; flex-direction: column; gap: 0.35rem; }
+
+.game-team {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.team-logo { width: 28px; height: 28px; object-fit: contain; flex-shrink: 0; margin-right: 10px; }
+.team-city { font-size: 0.88rem; color: #aaa; flex: 1; }
+.team-winner .team-city { color: #e8e8e8; font-weight: 600; }
+.team-score-sb { font-size: 1.2rem; font-weight: 700; color: #e8e8e8; }
+.team-winner .team-score-sb { color: #fff; }
+
+.game-footer {
+  margin-top: 0.75rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid #252833;
+  font-size: 0.75rem;
+  color: #2d8a4e;
+  font-weight: 500;
+}
+
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   background: #0f1117;

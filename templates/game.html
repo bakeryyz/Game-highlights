@@ -8,7 +8,7 @@
 </head>
 <body>
   <div class="container">
-    <a href="/" class="back-link">← New search</a>
+    <a href="/scoreboard" class="back-link">← Scoreboard</a>
 
     <!-- Box Score Header -->
     <div class="box-score">
@@ -97,9 +97,20 @@
       const container = btn.closest('.play-main, .clip-card').parentElement.querySelector('.video-container');
       const video = container.querySelector('video');
       if (container.style.display === 'none') {
+        // Pause any other open videos first
+        document.querySelectorAll('.video-container video').forEach(v => {
+          if (v !== video) { v.pause(); v.src = ''; }
+        });
+        document.querySelectorAll('.video-container').forEach(c => {
+          if (c !== container) c.style.display = 'none';
+        });
+        document.querySelectorAll('.watch-btn').forEach(b => {
+          if (b !== btn) b.textContent = b.textContent.replace('⏹', '▶');
+        });
         video.src = url;
         container.style.display = 'block';
         btn.textContent = btn.textContent.replace('▶', '⏹');
+        video.play();
       } else {
         video.pause();
         video.src = '';

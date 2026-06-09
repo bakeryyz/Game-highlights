@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MLB Scoreboard — Game Highlights</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+  <!-- Top nav -->
+  <nav class="top-nav">
+    <span class="nav-brand">⚾ Game Highlights</span>
+    <a href="/scoreboard" class="nav-link nav-link-active">Scoreboard</a>
+    <a href="/search-page" class="nav-link">Search</a>
+  </nav>
+
+  <!-- Date strip -->
+  <div class="date-strip-wrap">
+    <a class="date-arrow" href="/scoreboard?date={{ (selected - timedelta(1)).strftime('%Y-%m-%d') }}">‹</a>
+    <div class="date-strip">
+      {% for d in strip %}
+      <a
+        class="date-pill {% if d == selected %}date-pill-active{% endif %} {% if d == today %}date-pill-today{% endif %}"
+        href="/scoreboard?date={{ d.strftime('%Y-%m-%d') }}"
+      >
+        <span class="date-pill-day">{{ d.strftime('%a') }}</span>
+        <span class="date-pill-num">{{ d.strftime('%-d') }}</span>
+      </a>
+      {% endfor %}
+    </div>
+    <a class="date-arrow" href="/scoreboard?date={{ (selected + timedelta(1)).strftime('%Y-%m-%d') }}">›</a>
+  </div>
+
+  <div class="sb-container">
+    <div class="sb-header">
+      <h2 class="sb-title">{{ selected.strftime('%B %-d, %Y') }}</h2>
+      <span class="sb-count">{{ games|length }} game{{ 's' if games|length != 1 }}</span>
+    </div>
+
+    {% if not games %}
+    <p class="sb-empty">No games scheduled for this date.</p>
+    {% else %}
+    <div class="games-grid">
+      {% for g in games %}
+      <a class="game-card {% if g.status == 'Final' %}game-card-final{% endif %}" href="/game/{{ g.game_id }}">
+
+        <div class="game-status">
+          {% if g.status == 'Final' %}
+            <span class="status-final">Final</span>
+          {% elif g.status == 'In Progress' %}
+            <span class="status-live">● Live</span>
+          {% else %}
+            <span class="status-time">{{ g.local_time }} {{ tz_name }}</span>
+          {% endif %}
+        </div>
+
+        <div class="game-matchup">
+          <div class="game-team {% if g.status == 'Final' and g.away_score > g.home_score %}team-winner{% endif %}">
+            <img class="team-logo" src="https://midfield.mlbstatic.com/v1/team/{{ g.away_id }}/spots/96" alt="{{ g.away_name }}">
+            <span class="team-city">{{ g.away_name }}</span>
+            {% if g.status in ['Final', 'In Progress'] %}
+            <span class="team-score-sb">{{ g.away_score }}</span>
+            {% endif %}
+          </div>
+          <div class="game-team {% if g.status == 'Final' and g.home_score > g.away_score %}team-winner{% endif %}">
+            <img class="team-logo" src="https://midfield.mlbstatic.com/v1/team/{{ g.home_id }}/spots/96" alt="{{ g.home_name }}">
+            <span class="team-city">{{ g.home_name }}</span>
+            {% if g.status in ['Final', 'In Progress'] %}
+            <span class="team-score-sb">{{ g.home_score }}</span>
+            {% endif %}
+          </div>
+        </div>
+
+        {% if g.status == 'Final' %}
+        <div class="game-footer">View highlights →</div>
+        {% endif %}
+
+      </a>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+
+</body>
+</html>
