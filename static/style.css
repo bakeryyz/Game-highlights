@@ -213,6 +213,47 @@ body {
 .live-inning { color: #888; font-size: 0.8rem; margin-top: 2px; }
 .refresh-status { margin-left: 0.75rem; color: #2d8a4e; font-size: 0.8rem; }
 
+/* ---- Box Score Table ---- */
+.boxscore-wrap {
+  overflow-x: auto;
+  margin-bottom: 1.5rem;
+  border-radius: 10px;
+  border: 1px solid #1e2130;
+}
+.boxscore {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+.boxscore thead tr { background: #12141e; }
+.boxscore th {
+  padding: 0.45rem 0.6rem;
+  text-align: center;
+  color: #555;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid #1e2130;
+}
+.boxscore td {
+  padding: 0.55rem 0.6rem;
+  text-align: center;
+  color: #aaa;
+  border-bottom: 1px solid #12141e;
+}
+.boxscore tbody tr:last-child td { border-bottom: none; }
+.boxscore tbody tr:hover td { background: #12141e; }
+.bs-team-col { width: 130px; }
+.bs-team-name {
+  text-align: left !important;
+  padding-left: 1rem !important;
+  color: #e8e8e8 !important;
+  font-weight: 500;
+}
+.bs-divider { border-left: 1px solid #1e2130 !important; }
+.bs-total { font-weight: 700; color: #e8e8e8 !important; }
+.bs-scoring { color: #2d8a4e !important; font-weight: 600; }
+
 /* ---- Recap ---- */
 .recap-section { margin-bottom: 1.5rem; }
 

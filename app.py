@@ -98,6 +98,40 @@ def _game_status(game_id):
     return schedule[0] if schedule else {}
 
 
+def _get_linescore(game_id):
+    """Return a structured linescore dict ready for the template."""
+    raw = statsapi.get('game', {'gamePk': game_id})
+    ls = raw['liveData']['linescore']
+    innings = [
+        {
+            'num': inn['num'],
+            'away': inn.get('away', {}).get('runs', '-'),
+            'home': inn.get('home', {}).get('runs', '-'),
+        }
+        for inn in ls.get('innings', [])
+    ]
+    # Pad to at least 9 innings for display
+    played = len(innings)
+    for n in range(played + 1, 10):
+        innings.append({'num': n, 'away': '-', 'home': '-'})
+
+    teams = ls.get('teams', {})
+    return {
+        'innings': innings,
+        'away': {
+            'r': teams.get('away', {}).get('runs', 0),
+            'h': teams.get('away', {}).get('hits', 0),
+            'e': teams.get('away', {}).get('errors', 0),
+        },
+        'home': {
+            'r': teams.get('home', {}).get('runs', 0),
+            'h': teams.get('home', {}).get('hits', 0),
+            'e': teams.get('home', {}).get('errors', 0),
+        },
+        'outs': ls.get('outs', 0),
+    }
+
+
 @app.route("/game/<int:game_id>")
 def game(game_id):
     g = load_game(game_id)
@@ -106,6 +140,7 @@ def game(game_id):
     is_live = meta.get('status') == 'In Progress'
     current_inning = meta.get('current_inning', '')
     inning_state = meta.get('inning_state', '')
+    linescore = _get_linescore(game_id)
 
     return render_template(
         "game.html",
@@ -114,6 +149,7 @@ def game(game_id):
         is_live=is_live,
         current_inning=current_inning,
         inning_state=inning_state,
+        linescore=linescore,
     )
 
 
@@ -128,12 +164,15 @@ def game_state(game_id):
     meta = _game_status(game_id)
     is_live = meta.get('status') == 'In Progress'
 
+    linescore = _get_linescore(game_id)
+
     return jsonify({
         "is_live": is_live,
         "away_score": g.final_away_score,
         "home_score": g.final_home_score,
         "current_inning": meta.get('current_inning', ''),
         "inning_state": meta.get('inning_state', ''),
+        "linescore": linescore,
         "plays": [
             {
                 "index": item["play"].index,

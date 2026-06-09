@@ -32,6 +32,43 @@
       {% if is_live %}<span id="refresh-status" class="refresh-status">Updating in <span id="countdown">30</span>s</span>{% endif %}
     </div>
 
+    <!-- Box Score Table -->
+    <div class="boxscore-wrap" id="boxscore-wrap">
+      <table class="boxscore">
+        <thead>
+          <tr>
+            <th class="bs-team-col"></th>
+            {% for inn in linescore.innings %}
+            <th>{{ inn.num }}</th>
+            {% endfor %}
+            <th class="bs-divider">R</th>
+            <th>H</th>
+            <th>E</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="bs-team-name">{{ game.away_team }}</td>
+            {% for inn in linescore.innings %}
+            <td class="{% if inn.away != '-' and inn.away > 0 %}bs-scoring{% endif %}">{{ inn.away }}</td>
+            {% endfor %}
+            <td class="bs-divider bs-total">{{ linescore.away.r }}</td>
+            <td class="bs-total">{{ linescore.away.h }}</td>
+            <td class="bs-total">{{ linescore.away.e }}</td>
+          </tr>
+          <tr>
+            <td class="bs-team-name">{{ game.home_team }}</td>
+            {% for inn in linescore.innings %}
+            <td class="{% if inn.home != '-' and inn.home > 0 %}bs-scoring{% endif %}">{{ inn.home }}</td>
+            {% endfor %}
+            <td class="bs-divider bs-total">{{ linescore.home.r }}</td>
+            <td class="bs-total">{{ linescore.home.h }}</td>
+            <td class="bs-total">{{ linescore.home.e }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
     <!-- AI Recap -->
     <div class="recap-section">
       <button class="recap-btn" id="recap-btn" onclick="loadRecap({{ game.game_id }})">
@@ -175,6 +212,36 @@
       timeline.innerHTML = html;
     }
 
+    function buildBoxscore(ls, awayTeam, homeTeam) {
+      const innings = ls.innings;
+      let headCells = '<th class="bs-team-col"></th>';
+      innings.forEach(i => headCells += `<th>${i.num}</th>`);
+      headCells += '<th class="bs-divider">R</th><th>H</th><th>E</th>';
+
+      function teamRow(name, key, totals) {
+        let cells = `<td class="bs-team-name">${name}</td>`;
+        innings.forEach(i => {
+          const val = i[key];
+          const cls = (val !== '-' && val > 0) ? 'bs-scoring' : '';
+          cells += `<td class="${cls}">${val}</td>`;
+        });
+        cells += `<td class="bs-divider bs-total">${totals.r}</td><td class="bs-total">${totals.h}</td><td class="bs-total">${totals.e}</td>`;
+        return `<tr>${cells}</tr>`;
+      }
+
+      document.getElementById('boxscore-wrap').innerHTML = `
+        <table class="boxscore">
+          <thead><tr>${headCells}</tr></thead>
+          <tbody>
+            ${teamRow(awayTeam, 'away', ls.away)}
+            ${teamRow(homeTeam, 'home', ls.home)}
+          </tbody>
+        </table>`;
+    }
+
+    const AWAY_TEAM = "{{ game.away_team }}";
+    const HOME_TEAM = "{{ game.home_team }}";
+
     async function pollLiveState() {
       try {
         const res = await fetch(`/api/game/${GAME_ID}/state`);
@@ -184,10 +251,11 @@
         if (data.current_inning) {
           document.getElementById('live-inning').textContent = `${data.inning_state} ${data.current_inning}`;
         }
+        buildBoxscore(data.linescore, AWAY_TEAM, HOME_TEAM);
         buildTimeline(data.plays);
         if (!data.is_live) {
           document.getElementById('refresh-status').textContent = 'Final';
-          return; // stop polling
+          return;
         }
         countdown = 30;
         setTimeout(pollLiveState, 30000);
