@@ -209,6 +209,10 @@ body {
 
 .game-date { text-align: center; color: #555; font-size: 0.85rem; margin-bottom: 1.5rem; }
 
+.live-badge { color: #e05c5c; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.06em; }
+.live-inning { color: #888; font-size: 0.8rem; margin-top: 2px; }
+.refresh-status { margin-left: 0.75rem; color: #2d8a4e; font-size: 0.8rem; }
+
 /* ---- Recap ---- */
 .recap-section { margin-bottom: 1.5rem; }
 

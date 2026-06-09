@@ -14,15 +14,23 @@
     <div class="box-score">
       <div class="team">
         <div class="team-name">{{ game.away_team }}</div>
-        <div class="team-score">{{ game.final_away_score }}</div>
+        <div class="team-score" id="away-score">{{ game.final_away_score }}</div>
       </div>
-      <div class="at-sign">@</div>
+      <div class="at-sign">
+        {% if is_live %}
+        <div class="live-badge">● LIVE</div>
+        <div class="live-inning" id="live-inning">{{ inning_state }} {{ current_inning }}</div>
+        {% else %}@{% endif %}
+      </div>
       <div class="team">
         <div class="team-name">{{ game.home_team }}</div>
-        <div class="team-score">{{ game.final_home_score }}</div>
+        <div class="team-score" id="home-score">{{ game.final_home_score }}</div>
       </div>
     </div>
-    <div class="game-date">{{ game.date }}</div>
+    <div class="game-date">
+      {{ game.date }}
+      {% if is_live %}<span id="refresh-status" class="refresh-status">Updating in <span id="countdown">30</span>s</span>{% endif %}
+    </div>
 
     <!-- AI Recap -->
     <div class="recap-section">
@@ -41,7 +49,7 @@
     </div>
 
     <!-- Timeline -->
-    <div class="timeline">
+    <div class="timeline" id="timeline">
       {% for inning_label, plays in innings.items() %}
       <div class="inning-header">{{ inning_label }}</div>
 
@@ -128,6 +136,74 @@
           el.style.display = '';
         }
       });
+    }
+
+    // ---- Live polling ----
+    const IS_LIVE = {{ 'true' if is_live else 'false' }};
+    const GAME_ID = {{ game.game_id }};
+    let countdown = 30;
+
+    function buildTimeline(plays) {
+      const timeline = document.getElementById('timeline');
+      let html = '';
+      let lastInning = null;
+      plays.forEach(p => {
+        if (p.inning_label !== lastInning) {
+          lastInning = p.inning_label;
+          html += `<div class="inning-header">${p.inning_label}</div>`;
+        }
+        const flagClass = p.is_flagged ? 'play-highlight' : '';
+        const desc = p.is_flagged ? `⭐ <strong>${p.description}</strong>` : p.description;
+        const reasons = p.is_flagged
+          ? `<div class="play-reasons">${p.reasons.map(r => `<span class="reason-tag">${r}</span>`).join('')}</div>`
+          : '';
+        const watchBtn = p.video_url
+          ? `<button class="watch-btn" onclick="toggleVideo(this, '${p.video_url}')">▶ Watch</button>` : '';
+        html += `
+          <div class="play ${flagClass}" data-highlight="${p.is_flagged}">
+            <div class="play-main">
+              <div class="play-score">\`${p.score_label}\`</div>
+              <div class="play-description">${desc}</div>
+              ${watchBtn}
+            </div>
+            ${reasons}
+            <div class="video-container" style="display:none">
+              <video controls preload="none" style="width:100%;max-width:720px;border-radius:8px;margin-top:8px"></video>
+            </div>
+          </div>`;
+      });
+      timeline.innerHTML = html;
+    }
+
+    async function pollLiveState() {
+      try {
+        const res = await fetch(`/api/game/${GAME_ID}/state`);
+        const data = await res.json();
+        document.getElementById('away-score').textContent = data.away_score;
+        document.getElementById('home-score').textContent = data.home_score;
+        if (data.current_inning) {
+          document.getElementById('live-inning').textContent = `${data.inning_state} ${data.current_inning}`;
+        }
+        buildTimeline(data.plays);
+        if (!data.is_live) {
+          document.getElementById('refresh-status').textContent = 'Final';
+          return; // stop polling
+        }
+        countdown = 30;
+        setTimeout(pollLiveState, 30000);
+      } catch (e) {
+        countdown = 30;
+        setTimeout(pollLiveState, 30000);
+      }
+    }
+
+    if (IS_LIVE) {
+      // Start countdown display
+      setInterval(() => {
+        const el = document.getElementById('countdown');
+        if (el) { countdown = Math.max(0, countdown - 1); el.textContent = countdown; }
+      }, 1000);
+      setTimeout(pollLiveState, 30000);
     }
 
     async function loadRecap(gameId) {
