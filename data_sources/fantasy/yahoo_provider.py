@@ -1,49 +1,51 @@
-import json
+import datetime
 import os
 from pathlib import Path
 
 from core.fantasy_models import FantasyPlayer, FantasyTeam, Matchup
-from core.scoring import ScoringSettings, score_stat_line
+from core.scoring import ScoringSettings
 from data_sources.fantasy.base import FantasyProvider, ProviderNotConfigured
 
 ATTRIBUTION = "Fantasy data provided by Yahoo Fantasy"
 ATTRIBUTION_URL = "https://sports.yahoo.com/fantasy/"
 
-# Yahoo display_name → normalized scoring key
-_YAHOO_STAT_MAP: dict[str, str] = {
-    "R": "runs", "1B": "singles", "2B": "doubles", "3B": "triples",
-    "HR": "homeRuns", "RBI": "rbi", "BB": "walks", "HBP": "hbp",
-    "SB": "stolenBases", "SO": "strikeouts_batter",
-    "IP": "inningsPitched", "K": "strikeouts_pitched",
-    "ER": "earnedRuns", "HA": "hits_allowed", "BBA": "walks_allowed",
-    "W": "wins", "SV": "saves",
+# Yahoo stat_id (string) → today_stat_line key used by stat_summary()
+_STAT_ID_TO_STAT_LINE: dict[str, str] = {
+    "7":  "runs",
+    "9":  "singles",
+    "10": "doubles",
+    "11": "triples",
+    "12": "homeRuns",
+    "13": "rbi",
+    "16": "stolenBases",
+    "33": "outs_pitched",   # converted to inningsPitched below
+    "42": "strikeouts_pitched",
+    "37": "earnedRuns",
+    "34": "hits_allowed",
+    "39": "walks_allowed",
+    "28": "wins",
+    "32": "saves",
 }
 
 
-def _load_scoring_override(path: str | None) -> ScoringSettings | None:
-    if not path:
+def _parse_stat_line(raw: dict) -> dict | None:
+    """Convert Yahoo {stat_id: value} dict to normalized stat line keys."""
+    result = {}
+    for sid, val in raw.items():
+        if val in ('-', '', None):
+            continue
+        key = _STAT_ID_TO_STAT_LINE.get(str(sid))
+        if not key:
+            continue
+        try:
+            result[key] = float(val)
+        except (ValueError, TypeError):
+            continue
+    if not result:
         return None
-    try:
-        weights = json.loads(Path(path).read_text())
-        return ScoringSettings(weights=weights, name="file_override")
-    except Exception:
-        return None
-
-
-def _parse_yahoo_scoring(lg) -> ScoringSettings | None:
-    """Best-effort parse of Yahoo league scoring. Returns None if it fails."""
-    try:
-        cats = lg.stat_categories()
-        weights: dict[str, float] = {}
-        for cat in cats:
-            disp = cat.get('display_name', '')
-            norm = _YAHOO_STAT_MAP.get(disp)
-            if norm:
-                # Yahoo multiplier; default 1.0 if not present
-                weights[norm] = float(cat.get('multiplier', 1.0))
-        return ScoringSettings(weights=weights, name="yahoo") if weights else None
-    except Exception:
-        return None
+    if "outs_pitched" in result:
+        result["inningsPitched"] = result.pop("outs_pitched") / 3
+    return result
 
 
 class YahooProvider(FantasyProvider):
@@ -98,45 +100,53 @@ class YahooProvider(FantasyProvider):
             )
 
     def get_scoring_settings(self) -> ScoringSettings:
-        if self._scoring is not None:
-            return self._scoring
-        # Priority: file override → Yahoo parse → default
-        override = _load_scoring_override(os.getenv("SCORING_FILE"))
-        if override:
-            self._scoring = override
-        else:
-            parsed = _parse_yahoo_scoring(self._lg)
-            self._scoring = parsed or ScoringSettings.default()
-        return self._scoring
+        return ScoringSettings.default()
 
-    def _build_team(self, team_obj, team_key: str) -> FantasyTeam:
-        from data_sources.mlb_live import all_player_stats_today
+    def _build_team(self, team_key: str) -> FantasyTeam:
         from data_sources.player_crosswalk import resolve_mlbam_id
         from data_sources.mlb_client import highlights_for_player
+        from data_sources.mlb_live import all_player_stats_today
 
-        scoring = self.get_scoring_settings()
+        today = datetime.date.today().isoformat()
+        resp = self._lg.sc.session.get(
+            f"https://fantasysports.yahooapis.com/fantasy/v2/team/{team_key}/roster/players/stats;type=date;date={today}",
+            params={"format": "json"},
+        )
+        data = resp.json()["fantasy_content"]["team"]
+
+        team_info = data[0]
+        team_name = next((x["name"] for x in team_info if isinstance(x, dict) and "name" in x), team_key)
+
+        players_data = data[1]["roster"]["0"]["players"]
+        count = players_data["count"]
+
         stats_index = all_player_stats_today()
 
-        roster = team_obj.roster()
-        team_name = getattr(team_obj, 'team_name', team_key)
-
         players: list[FantasyPlayer] = []
-        for p in roster:
-            yahoo_id = str(p.get('player_id', ''))
-            name = p.get('name', '')
-            slot = p.get('selected_position', '')
-            pro_team = p.get('editorial_team_abbr', '')
+        for i in range(count):
+            p = players_data[str(i)]["player"]
+            info = p[0]
+
+            name = next((x["name"]["full"] for x in info if isinstance(x, dict) and "name" in x), "?")
+            yahoo_id = str(next((x["player_id"] for x in info if isinstance(x, dict) and "player_id" in x), ""))
+            pro_team = next((x["editorial_team_abbr"] for x in info if isinstance(x, dict) and "editorial_team_abbr" in x), "")
+
+            slot_data = p[1]["selected_position"]
+            slot = next((x["position"] for x in slot_data if isinstance(x, dict) and "position" in x), "")
+
+            today_points = 0.0
+            today_stat_line = None
+            if len(p) > 4:
+                pts_section = p[4]
+                today_points = float(pts_section["player_points"]["total"])
+                raw_stats = {s["stat"]["stat_id"]: s["stat"]["value"] for s in pts_section["player_stats"]["stats"]}
+                today_stat_line = _parse_stat_line(raw_stats)
 
             mlbam_id = resolve_mlbam_id(name, yahoo_id=yahoo_id, pro_team=pro_team)
-
             game_pk: int | None = None
-            stat_line: dict | None = None
-            pts = 0.0
             urls: list[str] = []
-
             if mlbam_id and mlbam_id in stats_index:
-                game_pk, stat_line = stats_index[mlbam_id]
-                pts = score_stat_line(stat_line, scoring)
+                game_pk = stats_index[mlbam_id][0]
                 try:
                     urls = highlights_for_player(game_pk, mlbam_id)
                 except Exception:
@@ -149,25 +159,54 @@ class YahooProvider(FantasyProvider):
                 mlbam_id=mlbam_id,
                 lineup_slot=slot,
                 pro_team=pro_team,
-                today_stat_line=stat_line,
-                today_points=pts,
+                today_stat_line=today_stat_line,
+                today_points=today_points,
                 game_pk=game_pk,
                 video_urls=urls,
             ))
 
         return FantasyTeam(team_id=team_key, name=team_name, players=players)
 
+    def _get_week_points(self, week: int, my_key: str, opp_key: str) -> tuple[float, float]:
+        """Return (my_pts, opp_pts) weekly totals from Yahoo's scoreboard."""
+        try:
+            raw = self._lg.matchups(week)
+            matchups = raw["fantasy_content"]["league"][1]["scoreboard"]["0"]["matchups"]
+            for k, v in matchups.items():
+                if k == "count":
+                    continue
+                teams = v.get("matchup", {}).get("0", {}).get("teams", {})
+                pts_by_key: dict[str, float] = {}
+                for tk, tv in teams.items():
+                    if tk == "count":
+                        continue
+                    t = tv.get("team", [])
+                    if isinstance(t, list) and len(t) > 1:
+                        t_key = next((x["team_key"] for x in t[0] if isinstance(x, dict) and "team_key" in x), None)
+                        t_pts = float(t[1].get("team_points", {}).get("total", 0))
+                        if t_key:
+                            pts_by_key[t_key] = t_pts
+                if my_key in pts_by_key and opp_key in pts_by_key:
+                    return pts_by_key[my_key], pts_by_key[opp_key]
+        except Exception:
+            pass
+        return 0.0, 0.0
+
     def get_team(self) -> FantasyTeam:
         team_key = os.getenv("YAHOO_TEAM_KEY", "")
-        return self._build_team(self._tm, team_key)
+        return self._build_team(team_key)
 
     def get_matchup(self) -> Matchup:
         week = self._lg.current_week()
+        my_key = os.getenv("YAHOO_TEAM_KEY", "")
         opp_key = self._tm.matchup(week)
-        opp_team_obj = self._lg.to_team(opp_key)
 
-        me = self.get_team()
-        opp = self._build_team(opp_team_obj, opp_key)
+        me = self._build_team(my_key)
+        opp = self._build_team(opp_key)
+
+        my_pts, opp_pts = self._get_week_points(week, my_key, opp_key)
+        me.week_points = my_pts
+        opp.week_points = opp_pts
 
         return Matchup(me=me, opponent=opp, period=f"Week {week}")
 

@@ -60,6 +60,7 @@ class FantasyTeam:
     team_id: str
     name: str
     players: list[FantasyPlayer] = field(default_factory=list)
+    week_points: float = 0.0  # Yahoo's official week-to-date total
 
     @property
     def starters(self) -> list[FantasyPlayer]:
@@ -71,6 +72,8 @@ class FantasyTeam:
 
     @property
     def total_points(self) -> float:
+        if self.week_points:
+            return self.week_points
         return sum(p.today_points for p in self.starters)
 
 
