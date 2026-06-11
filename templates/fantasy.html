@@ -62,8 +62,11 @@ YAHOO_TOKEN_FILE=.yahoo_token.json</pre>
           <tr class="{% if p.playing_today %}player-active{% endif %}">
             <td class="slot-cell">{{ p.lineup_slot }}</td>
             <td class="player-name">
-              {{ p.name }}
-              {% if not p.mlbam_id %}<span class="no-id-badge" title="MLBAM id not resolved">?</span>{% endif %}
+              {% if p.mlbam_id %}
+              <a href="/player/{{ p.mlbam_id }}" class="player-name-link">{{ p.name }}</a>
+              {% else %}
+              {{ p.name }}<span class="no-id-badge" title="MLBAM id not resolved">?</span>
+              {% endif %}
             </td>
             <td class="team-abbr">{{ p.pro_team }}</td>
             <td class="pts-cell {% if p.today_points > 0 %}pts-pos{% elif p.today_points < 0 %}pts-neg{% endif %}">

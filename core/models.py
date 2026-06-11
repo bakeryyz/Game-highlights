@@ -16,8 +16,16 @@ class Play:
     rbi: int
     batter: str
     pitcher: str
-    captivating_index: int  # MLB's 0-100 excitement score
+    batter_id: int | None = None
+    pitcher_id: int | None = None
+    captivating_index: int = 0
     video_url: str | None = None
+    # Statcast fields (populated for completed games)
+    launch_speed: float | None = None
+    launch_angle: float | None = None
+    hit_distance: int | None = None
+    pitch_speed: float | None = None
+    pitch_type: str | None = None
 
     @property
     def inning_label(self) -> str:

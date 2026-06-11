@@ -10,6 +10,7 @@ import statsapi
 from core.highlight_detector import score_plays, is_highlight
 from core.narrative import generate_narrative
 from data_sources.mlb_client import find_games, load_game
+from data_sources import statcast as sc_module
 
 app = Flask(__name__)
 
@@ -135,9 +136,14 @@ def _get_linescore(game_id):
 @app.route("/game/<int:game_id>")
 def game(game_id):
     g = load_game(game_id)
-    innings = _build_innings(g)
     meta = _game_status(game_id)
     is_live = meta.get('status') == 'In Progress'
+
+    # Enrich completed (or final) games with Statcast metrics
+    if not is_live and g.plays:
+        sc_module.enrich_plays(game_id, g.plays)
+
+    innings = _build_innings(g)
     current_inning = meta.get('current_inning', '')
     inning_state = meta.get('inning_state', '')
     linescore = _get_linescore(game_id)
@@ -218,6 +224,24 @@ def fantasy():
                                error=f"Unexpected error: {e}",
                                attribution="Fantasy data provided by Yahoo Fantasy",
                                attribution_url="https://sports.yahoo.com/fantasy/")
+
+
+@app.route("/player/<int:mlbam_id>")
+def player(mlbam_id):
+    player_info = statsapi.player_stat_data(
+        mlbam_id, group="hitting,pitching", type="season"
+    )
+    sc_metrics = sc_module.get_player_statcast(mlbam_id)
+    percentiles = sc_module.compute_percentiles(mlbam_id, sc_metrics) if sc_metrics else {}
+
+    return render_template(
+        "player.html",
+        player=player_info,
+        mlbam_id=mlbam_id,
+        sc_metrics=sc_metrics,
+        percentiles=percentiles,
+        pitch_type_name=sc_module.pitch_type_name,
+    )
 
 
 if __name__ == "__main__":

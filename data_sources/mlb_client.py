@@ -125,6 +125,8 @@ def _parse_plays(all_plays: list[dict]) -> list[Play]:
             rbi=result.get('rbi', 0),
             batter=matchup.get('batter', {}).get('fullName', ''),
             pitcher=matchup.get('pitcher', {}).get('fullName', ''),
+            batter_id=matchup.get('batter', {}).get('id'),
+            pitcher_id=matchup.get('pitcher', {}).get('id'),
             captivating_index=about.get('captivatingIndex', 0),
             video_url=None,
         ))

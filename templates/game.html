@@ -98,6 +98,21 @@
           {% endfor %}
         </div>
         {% endif %}
+        {# Statcast metrics strip #}
+        {% set p = item.play %}
+        {% if p.launch_speed or p.pitch_speed %}
+        <div class="play-statcast">
+          {% if p.launch_speed %}<span class="sc-tag sc-ev">{{ p.launch_speed }} mph EV</span>{% endif %}
+          {% if p.launch_angle is not none and p.launch_speed %}<span class="sc-tag sc-angle">{{ p.launch_angle | round(0) | int }}° LA</span>{% endif %}
+          {% if p.hit_distance %}<span class="sc-tag sc-dist">{{ p.hit_distance }} ft</span>{% endif %}
+          {% if p.pitch_speed %}<span class="sc-tag sc-pitch">{{ p.pitch_speed }} mph {{ p.pitch_type if p.pitch_type else '' }}</span>{% endif %}
+          {% if p.batter_id %}<a class="sc-tag sc-player-link" href="/player/{{ p.batter_id }}">{{ p.batter }} ↗</a>{% endif %}
+        </div>
+        {% elif p.batter_id and item.is_flagged %}
+        <div class="play-statcast">
+          <a class="sc-tag sc-player-link" href="/player/{{ p.batter_id }}">{{ p.batter }} ↗</a>
+        </div>
+        {% endif %}
         <div class="video-container" style="display:none">
           <video controls preload="none" style="width:100%;max-width:720px;border-radius:8px;margin-top:8px"></video>
         </div>
