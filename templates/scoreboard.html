@@ -1,22 +1,8 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>MLB Scoreboard — Game Highlights</title>
-  <link rel="stylesheet" href="/static/style.css">
-</head>
-<body>
+{% extends "base.html" %}
+{% block title %}MLB Scoreboard — Game Highlights{% endblock %}
+{% block nav_scoreboard %}sidebar-link-active{% endblock %}
 
-  <!-- Top nav -->
-  <nav class="top-nav">
-    <span class="nav-brand">⚾ Game Highlights</span>
-    <a href="/scoreboard" class="nav-link nav-link-active">Scoreboard</a>
-    <a href="/search-page" class="nav-link">Search</a>
-    <a href="/fantasy" class="nav-link">Fantasy</a>
-  </nav>
-
-  <!-- Date strip -->
+{% block content %}
   <div class="date-strip-wrap">
     <a class="date-arrow" href="/scoreboard?date={{ (selected - timedelta(1)).strftime('%Y-%m-%d') }}">‹</a>
     <div class="date-strip">
@@ -44,13 +30,13 @@
     {% else %}
     <div class="games-grid">
       {% for g in games %}
-      <a class="game-card {% if g.status == 'Final' %}game-card-final{% endif %}" href="/game/{{ g.game_id }}">
+      <a class="game-card {% if g.status == 'In Progress' %}game-card-live{% endif %}" href="/game/{{ g.game_id }}">
 
         <div class="game-status">
           {% if g.status == 'Final' %}
             <span class="status-final">Final</span>
           {% elif g.status == 'In Progress' %}
-            <span class="status-live">● Live</span>
+            <span class="status-live"><span class="live-dot"></span>Live</span>
           {% else %}
             <span class="status-time">{{ g.local_time }} {{ tz_name }}</span>
           {% endif %}
@@ -82,6 +68,4 @@
     </div>
     {% endif %}
   </div>
-
-</body>
-</html>
+{% endblock %}

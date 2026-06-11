@@ -1,24 +1,11 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>My Fantasy Team — Game Highlights</title>
-  <link rel="stylesheet" href="/static/style.css">
-</head>
-<body>
+{% extends "base.html" %}
+{% block title %}My Fantasy Team — Game Highlights{% endblock %}
+{% block nav_fantasy %}sidebar-link-active{% endblock %}
 
-  <nav class="top-nav">
-    <span class="nav-brand">⚾ Game Highlights</span>
-    <a href="/scoreboard" class="nav-link">Scoreboard</a>
-    <a href="/search-page" class="nav-link">Search</a>
-    <a href="/fantasy" class="nav-link nav-link-active">Fantasy</a>
-  </nav>
-
+{% block content %}
   <div class="container">
 
     {% if error %}
-    <!-- Not configured or error state -->
     <div class="fantasy-setup">
       <h2>My Fantasy Team</h2>
       <div class="setup-box">
@@ -44,7 +31,6 @@ YAHOO_TOKEN_FILE=.yahoo_token.json</pre>
     {% set me = matchup.me %}
     {% set opp = matchup.opponent %}
 
-    <!-- Matchup Banner -->
     <div class="matchup-banner {% if matchup.margin > 0 %}banner-winning{% elif matchup.margin < 0 %}banner-losing{% else %}banner-tied{% endif %}">
       <div class="matchup-teams">
         <div class="matchup-team">
@@ -62,7 +48,6 @@ YAHOO_TOKEN_FILE=.yahoo_token.json</pre>
       </div>
     </div>
 
-    <!-- My Starters -->
     <h2 class="section-title">My Team — {{ me.name }}</h2>
     <div class="fantasy-table-wrap">
       <table class="fantasy-table">
@@ -92,7 +77,7 @@ YAHOO_TOKEN_FILE=.yahoo_token.json</pre>
             </td>
           </tr>
           {% if p.video_urls %}
-          <tr class="video-row" style="display:none" id="vrow-{{ loop.index }}">
+          <tr class="video-row" style="display:none">
             <td colspan="6">
               <video controls autoplay preload="none"
                 style="width:100%;max-width:720px;border-radius:8px;margin:6px 0"></video>
@@ -104,7 +89,6 @@ YAHOO_TOKEN_FILE=.yahoo_token.json</pre>
       </table>
     </div>
 
-    <!-- Bench / IL -->
     {% if me.bench %}
     <details class="bench-section">
       <summary>Bench / IL ({{ me.bench|length }} players)</summary>
@@ -127,7 +111,6 @@ YAHOO_TOKEN_FILE=.yahoo_token.json</pre>
     </details>
     {% endif %}
 
-    <!-- Opponent -->
     <h2 class="section-title opp-title">Opponent — {{ opp.name }}</h2>
     <div class="fantasy-table-wrap">
       <table class="fantasy-table">
@@ -149,31 +132,29 @@ YAHOO_TOKEN_FILE=.yahoo_token.json</pre>
     </div>
     {% endif %}
 
-    <!-- Attribution -->
     <div class="fantasy-attribution">
       <a href="{{ attribution_url }}" target="_blank" rel="noopener">{{ attribution }}</a>
     </div>
-
   </div>
+{% endblock %}
 
-  <script>
-    function toggleVideo(btn, url) {
-      // Find the video row immediately after this table row
-      const tr = btn.closest('tr');
-      const next = tr.nextElementSibling;
-      if (!next || !next.classList.contains('video-row')) return;
-      const video = next.querySelector('video');
-      if (next.style.display === 'none') {
-        video.src = url;
-        next.style.display = '';
-        btn.textContent = '⏹';
-        video.play();
-      } else {
-        video.pause(); video.src = '';
-        next.style.display = 'none';
-        btn.textContent = '▶';
-      }
+{% block scripts %}
+<script>
+  function toggleVideo(btn, url) {
+    const tr = btn.closest('tr');
+    const next = tr.nextElementSibling;
+    if (!next || !next.classList.contains('video-row')) return;
+    const video = next.querySelector('video');
+    if (next.style.display === 'none') {
+      video.src = url;
+      next.style.display = '';
+      btn.textContent = '⏹';
+      video.play();
+    } else {
+      video.pause(); video.src = '';
+      next.style.display = 'none';
+      btn.textContent = '▶';
     }
-  </script>
-</body>
-</html>
+  }
+</script>
+{% endblock %}
