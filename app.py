@@ -1,6 +1,5 @@
 import os
-from datetime import date, datetime, timedelta, timezone
-from zoneinfo import ZoneInfo
+from datetime import date, datetime, timedelta
 from flask import Flask, render_template, request, redirect, url_for, jsonify
 from dotenv import load_dotenv
 
@@ -9,7 +8,7 @@ load_dotenv()
 import statsapi
 from core.highlight_detector import score_plays, is_highlight
 from core.narrative import generate_narrative
-from data_sources.mlb_client import find_games, load_game
+from data_sources.mlb_client import find_games, get_game_raw, load_game
 from data_sources import statcast as sc_module
 
 app = Flask(__name__)
@@ -100,8 +99,12 @@ def _game_status(game_id):
 
 
 def _get_linescore(game_id):
-    """Return a structured linescore dict ready for the template."""
-    raw = statsapi.get('game', {'gamePk': game_id})
+    """Return a structured linescore dict ready for the template.
+
+    Reuses the cached full game payload (populated by load_game) instead of
+    making a second API call for the same data.
+    """
+    raw = get_game_raw(game_id)
     ls = raw['liveData']['linescore']
     innings = [
         {
@@ -162,10 +165,9 @@ def game(game_id):
 @app.route("/api/game/<int:game_id>/state")
 def game_state(game_id):
     """JSON endpoint polled by the frontend during live games."""
-    from data_sources import cache as game_cache
-    # Always bypass cache for live state
-    game_cache.clear(str(game_id), 'pbp')
-    g = load_game(game_id)
+    # Bypass the cache for live state: refetches the full payload once and
+    # re-caches it, so the _get_linescore call below reuses it (no second hit).
+    g = load_game(game_id, bypass_cache=True)
     innings = _build_innings(g)
     meta = _game_status(game_id)
     is_live = meta.get('status') == 'In Progress'

@@ -1,8 +1,11 @@
+import logging
 import os
 
 from core.highlight_detector import is_highlight, score_plays
 from core.models import Game, Highlight
 from data_sources import cache
+
+log = logging.getLogger(__name__)
 
 CLAUDE_MODEL = os.getenv('CLAUDE_MODEL', 'claude-sonnet-4-6')
 
@@ -22,7 +25,7 @@ def _stats_recap(game: Game, highlights: list[Highlight]) -> str:
 def generate_narrative(game: Game) -> str:
     """
     Build a short prose recap using Claude. Falls back to a stats-only recap
-    if CLAUDE_API_KEY is missing or the API call fails.
+    if ANTHROPIC_API_KEY is missing or the API call fails.
     """
     cached = cache.load(game.game_id, 'narrative')
     if cached and isinstance(cached, dict) and 'text' in cached:
@@ -31,8 +34,9 @@ def generate_narrative(game: Game) -> str:
     highlights = score_plays(game.plays)
     top = [h for h in highlights if is_highlight(h)][:6]
 
-    api_key = os.getenv('CLAUDE_API_KEY')
+    api_key = os.getenv('ANTHROPIC_API_KEY')
     if not api_key:
+        log.info("ANTHROPIC_API_KEY not set — using stats-only recap.")
         return _stats_recap(game, highlights)
 
     try:
@@ -60,5 +64,6 @@ def generate_narrative(game: Game) -> str:
         cache.save(game.game_id, {'text': text}, 'narrative')
         return text
 
-    except Exception:
+    except Exception as e:
+        log.warning(f"Claude narrative failed, using stats recap: {e}")
         return _stats_recap(game, highlights)

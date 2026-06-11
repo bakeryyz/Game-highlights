@@ -214,27 +214,44 @@ def _match_clips_to_plays(plays: list[Play], clips: list[Clip]) -> list[Clip]:
 # Main load function
 # ---------------------------------------------------------------------------
 
-def load_game(game_id: int | str) -> Game:
-    """Fetch (with caching) and return a fully parsed Game object."""
+def get_game_raw(game_id: int | str, bypass_cache: bool = False) -> dict:
+    """
+    Fetch (with caching) the full statsapi 'game' payload — both gameData and
+    liveData. Cached under the 'full' resource so play-by-play and the linescore
+    can be derived from a single API call instead of two.
+    """
     gid = str(game_id)
+    if not bypass_cache:
+        cached = cache.load(gid, 'full')
+        if cached is not None:
+            return cached
+    raw = statsapi.get('game', {'gamePk': gid})
+    cache.save(gid, raw, 'full')
+    return raw
 
-    # --- play-by-play ---
-    pbp = cache.load(gid, 'pbp')
-    if pbp is None:
-        raw = statsapi.get('game', {'gamePk': gid})
-        pbp = raw['liveData']['plays']
-        cache.save(gid, pbp, 'pbp')
 
-    plays = _parse_plays(pbp.get('allPlays', []))
-
-    # --- highlights ---
+def _load_highlight_items(gid: str) -> list[dict]:
+    """Fetch (with caching) the raw highlight clip items for a game."""
     hl_raw = cache.load(gid, 'highlights')
     if hl_raw is None:
         content = statsapi.get('game_content', {'gamePk': gid})
         hl_raw = content.get('highlights', {}).get('highlights', {}).get('items', [])
         cache.save(gid, hl_raw, 'highlights')
+    return hl_raw
 
-    clips = _parse_clips(hl_raw)
+
+def load_game(game_id: int | str, bypass_cache: bool = False) -> Game:
+    """Fetch (with caching) and return a fully parsed Game object."""
+    gid = str(game_id)
+
+    # --- play-by-play (derived from the single cached full payload) ---
+    raw = get_game_raw(gid, bypass_cache=bypass_cache)
+    pbp = raw.get('liveData', {}).get('plays', {})
+
+    plays = _parse_plays(pbp.get('allPlays', []))
+
+    # --- highlights ---
+    clips = _parse_clips(_load_highlight_items(gid))
     unmatched = _match_clips_to_plays(plays, clips)
 
     # --- game metadata ---
@@ -261,11 +278,5 @@ def highlights_for_player(game_pk: int, mlbam_id: int) -> list[str]:
     where the player's id appears in the clip's keywordsAll player_id entries.
     """
     gid = str(game_pk)
-    hl_raw = cache.load(gid, 'highlights')
-    if hl_raw is None:
-        content = statsapi.get('game_content', {'gamePk': gid})
-        hl_raw = content.get('highlights', {}).get('highlights', {}).get('items', [])
-        cache.save(gid, hl_raw, 'highlights')
-
-    clips = _parse_clips(hl_raw)
+    clips = _parse_clips(_load_highlight_items(gid))
     return [c.url for c in clips if mlbam_id in c.player_ids]
