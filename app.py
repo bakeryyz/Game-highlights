@@ -226,6 +226,84 @@ def fantasy():
                                attribution_url="https://sports.yahoo.com/fantasy/")
 
 
+@app.route("/chat")
+def chat():
+    return render_template("chat.html")
+
+
+@app.route("/api/chat/warm", methods=["POST"])
+def chat_warm():
+    """Pre-build and cache the fantasy context. Called when the chat page loads."""
+    from data_sources import fantasy_context
+    from data_sources.fantasy.base import get_provider, ProviderNotConfigured
+    try:
+        provider = get_provider()
+        ctx = fantasy_context.build(provider)
+        return jsonify({"ok": True, "chars": len(ctx)})
+    except ProviderNotConfigured:
+        return jsonify({"ok": False, "reason": "fantasy_not_configured"})
+    except Exception as e:
+        return jsonify({"ok": False, "reason": str(e)})
+
+
+@app.route("/api/chat", methods=["POST"])
+def api_chat():
+    import json as _json
+    from flask import Response, stream_with_context
+
+    data = request.get_json(force=True)
+    messages = data.get("messages", [])
+    if not messages:
+        return jsonify({"error": "No messages provided"}), 400
+
+    # Trim to last 20 messages to avoid token overflow
+    if len(messages) > 20:
+        messages = messages[-20:]
+
+    api_key = os.getenv("GROQ_API_KEY")
+    if not api_key:
+        return jsonify({"error": "GROQ_API_KEY not set — add it to .env"}), 503
+
+    # Build context (cached 15 min)
+    from data_sources import fantasy_context
+    from data_sources.fantasy.base import get_provider, ProviderNotConfigured
+    system_prompt = fantasy_context.SYSTEM_PREAMBLE + (
+        "Note: Fantasy league data is unavailable right now. "
+        "Answer using general MLB and fantasy baseball knowledge."
+    )
+    try:
+        provider = get_provider()
+        system_prompt = fantasy_context.build(provider)
+    except ProviderNotConfigured:
+        pass
+    except Exception:
+        pass
+
+    def generate():
+        try:
+            from groq import Groq
+            client = Groq(api_key=api_key)
+            stream = client.chat.completions.create(
+                model=os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
+                max_tokens=1024,
+                messages=[{"role": "system", "content": system_prompt}, *messages],
+                stream=True,
+            )
+            for chunk in stream:
+                text = chunk.choices[0].delta.content or ""
+                if text:
+                    yield f"data: {_json.dumps({'t': text})}\n\n"
+            yield f"data: {_json.dumps({'done': True})}\n\n"
+        except Exception as e:
+            yield f"data: {_json.dumps({'error': str(e)})}\n\n"
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @app.route("/player/<int:mlbam_id>")
 def player(mlbam_id):
     player_info = statsapi.player_stat_data(

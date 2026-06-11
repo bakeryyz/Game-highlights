@@ -1,0 +1,271 @@
+{% extends "base.html" %}
+{% block title %}Fantasy Advisor — Game Highlights{% endblock %}
+{% block nav_chat %}sidebar-link-active{% endblock %}
+
+{% block content %}
+<div class="chat-shell">
+
+  {# ── Header ────────────────────────────────────────────────── #}
+  <div class="chat-header">
+    <div class="chat-header-left">
+      <div class="chat-header-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 2a10 10 0 1 0 10 10"/>
+          <polyline points="12 6 12 12 16 14"/>
+          <circle cx="19" cy="5" r="3" fill="currentColor" stroke="none"/>
+        </svg>
+      </div>
+      <div>
+        <div class="chat-header-title">Fantasy Advisor</div>
+        <div class="chat-header-sub" id="ctx-status">Loading your team data…</div>
+      </div>
+    </div>
+    <button class="chat-refresh-btn" id="refresh-btn" onclick="refreshContext()" title="Refresh team data">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+        <polyline points="23 4 23 10 17 10"/>
+        <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+      </svg>
+      Refresh
+    </button>
+  </div>
+
+  {# ── Messages ──────────────────────────────────────────────── #}
+  <div class="chat-messages" id="chat-messages">
+    <div class="msg-row msg-assistant">
+      <div class="msg-avatar">AI</div>
+      <div class="msg-bubble" id="welcome-msg">
+        <p>Hey! I'm your fantasy baseball advisor. I have access to your live roster, today's matchups, opposing pitchers, and league scoring settings.</p>
+        <p style="margin-top:.5rem">Ask me anything — start/sit calls, trade analysis, who to pick up, how your matchup looks. I'll use your actual stats and today's games.</p>
+      </div>
+    </div>
+  </div>
+
+  {# ── Input area ────────────────────────────────────────────── #}
+  <div class="chat-input-area">
+    <div class="chat-suggestions" id="suggestions">
+      <button class="suggestion-chip" onclick="useSuggestion(this)">Who should I start today?</button>
+      <button class="suggestion-chip" onclick="useSuggestion(this)">Analyze my matchup this week</button>
+      <button class="suggestion-chip" onclick="useSuggestion(this)">Best trade targets I should go after?</button>
+      <button class="suggestion-chip" onclick="useSuggestion(this)">Who can I drop from my bench?</button>
+    </div>
+    <form class="chat-form" id="chat-form" onsubmit="return false">
+      <textarea
+        class="chat-textarea"
+        id="chat-input"
+        placeholder="Ask about your fantasy team…"
+        rows="1"
+        autocomplete="off"
+      ></textarea>
+      <button class="chat-send-btn" id="send-btn" type="button" onclick="sendMessage()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="18" height="18">
+          <line x1="22" y1="2" x2="11" y2="13"/>
+          <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+        </svg>
+      </button>
+    </form>
+    <div class="chat-disclaimer">AI advice only — always verify injury news and lineup decisions before game time.</div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script>
+marked.setOptions({ breaks: true, gfm: true });
+
+const messagesEl = document.getElementById('chat-messages');
+const inputEl    = document.getElementById('chat-input');
+const sendBtn    = document.getElementById('send-btn');
+const ctxStatus  = document.getElementById('ctx-status');
+
+// Conversation history sent to the API
+let history = [];
+let isStreaming = false;
+
+// ── Context warm-up ────────────────────────────────────────────
+async function warmContext() {
+  try {
+    const res = await fetch('/api/chat/warm', { method: 'POST' });
+    const data = await res.json();
+    if (data.ok) {
+      ctxStatus.textContent = 'Team data loaded · Ready';
+      ctxStatus.style.color = 'var(--accent)';
+    } else if (data.reason === 'fantasy_not_configured') {
+      ctxStatus.textContent = 'Fantasy not configured — general MLB mode';
+      ctxStatus.style.color = 'var(--text-3)';
+    } else {
+      ctxStatus.textContent = 'Could not load team data — general mode';
+      ctxStatus.style.color = 'var(--text-3)';
+    }
+  } catch (e) {
+    ctxStatus.textContent = 'Offline — check server';
+    ctxStatus.style.color = 'var(--red)';
+  }
+}
+
+async function refreshContext() {
+  ctxStatus.textContent = 'Refreshing…';
+  ctxStatus.style.color = 'var(--text-2)';
+  document.getElementById('refresh-btn').disabled = true;
+  try {
+    const res = await fetch('/api/chat/warm', { method: 'POST' });
+    const data = await res.json();
+    ctxStatus.textContent = data.ok ? 'Team data refreshed · Ready' : 'Refresh failed';
+    ctxStatus.style.color = data.ok ? 'var(--accent)' : 'var(--red)';
+  } catch (e) {
+    ctxStatus.textContent = 'Refresh failed';
+    ctxStatus.style.color = 'var(--red)';
+  } finally {
+    document.getElementById('refresh-btn').disabled = false;
+  }
+}
+
+warmContext();
+
+// ── Auto-grow textarea ─────────────────────────────────────────
+inputEl.addEventListener('input', () => {
+  inputEl.style.height = 'auto';
+  inputEl.style.height = Math.min(inputEl.scrollHeight, 160) + 'px';
+});
+
+inputEl.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    if (!isStreaming) sendMessage();
+  }
+});
+
+// ── Suggestion chips ───────────────────────────────────────────
+function useSuggestion(btn) {
+  inputEl.value = btn.textContent;
+  inputEl.dispatchEvent(new Event('input'));
+  inputEl.focus();
+  document.getElementById('suggestions').style.display = 'none';
+}
+
+// ── Render helpers ─────────────────────────────────────────────
+function scrollBottom() {
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+function addMessage(role, text, streaming = false) {
+  const row = document.createElement('div');
+  row.className = `msg-row msg-${role}`;
+
+  const avatar = document.createElement('div');
+  avatar.className = 'msg-avatar';
+  avatar.textContent = role === 'user' ? 'You' : 'AI';
+
+  const bubble = document.createElement('div');
+  bubble.className = 'msg-bubble';
+
+  if (streaming) {
+    bubble.innerHTML = '<span class="thinking-dots"><span>●</span><span>●</span><span>●</span></span>';
+  } else if (role === 'assistant') {
+    bubble.innerHTML = marked.parse(text);
+  } else {
+    bubble.textContent = text;
+  }
+
+  if (role === 'user') {
+    row.appendChild(bubble);
+    row.appendChild(avatar);
+  } else {
+    row.appendChild(avatar);
+    row.appendChild(bubble);
+  }
+
+  messagesEl.appendChild(row);
+  scrollBottom();
+  return bubble;
+}
+
+function updateStreamingBubble(bubbleEl, text) {
+  bubbleEl.innerHTML = marked.parse(text + '▌');
+  scrollBottom();
+}
+
+function finalizeStreamingBubble(bubbleEl, text) {
+  bubbleEl.innerHTML = marked.parse(text);
+  scrollBottom();
+}
+
+// ── Send message ───────────────────────────────────────────────
+async function sendMessage() {
+  const text = inputEl.value.trim();
+  if (!text || isStreaming) return;
+
+  // Hide suggestions after first message
+  document.getElementById('suggestions').style.display = 'none';
+
+  // Add user message to UI and history
+  addMessage('user', text);
+  history.push({ role: 'user', content: text });
+
+  // Clear input
+  inputEl.value = '';
+  inputEl.style.height = 'auto';
+
+  // Add streaming assistant bubble
+  const bubble = addMessage('assistant', '', true);
+  isStreaming = true;
+  sendBtn.disabled = true;
+
+  let accumulated = '';
+
+  try {
+    const response = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: history }),
+    });
+
+    if (!response.ok) {
+      const err = await response.json();
+      finalizeStreamingBubble(bubble, `**Error:** ${err.error || 'Request failed'}`);
+      history.pop();
+      return;
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop() || '';
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        try {
+          const data = JSON.parse(line.slice(6));
+          if (data.t) {
+            accumulated += data.t;
+            updateStreamingBubble(bubble, accumulated);
+          }
+          if (data.error) {
+            accumulated = `**Error:** ${data.error}`;
+            finalizeStreamingBubble(bubble, accumulated);
+          }
+        } catch (e) {}
+      }
+    }
+
+    finalizeStreamingBubble(bubble, accumulated);
+    history.push({ role: 'assistant', content: accumulated });
+
+  } catch (e) {
+    finalizeStreamingBubble(bubble, `**Connection error:** ${e.message}`);
+    history.pop();
+  } finally {
+    isStreaming = false;
+    sendBtn.disabled = false;
+    inputEl.focus();
+  }
+}
+</script>
+{% endblock %}
