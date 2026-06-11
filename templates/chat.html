@@ -5,7 +5,21 @@
 {% block content %}
 <div class="chat-shell">
 
-  {# ── Header ────────────────────────────────────────────────── #}
+  {# ── History panel ─────────────────────────────────────────────── #}
+  <div class="chat-history-overlay" id="history-overlay" onclick="closeHistory()"></div>
+  <div class="chat-history-panel" id="history-panel">
+    <div class="chat-history-header">
+      <span class="chat-history-title">Past Conversations</span>
+      <button class="chat-history-close" onclick="closeHistory()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="14" height="14"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="chat-history-list" id="history-list"></div>
+    <div class="chat-history-empty" id="history-empty" style="display:none">No saved conversations yet</div>
+    <button class="chat-history-clear" id="history-clear-btn" onclick="clearAllHistory()" style="display:none">Clear all history</button>
+  </div>
+
+  {# ── Header ────────────────────────────────────────────────────── #}
   <div class="chat-header">
     <div class="chat-header-left">
       <div class="chat-header-icon">
@@ -20,16 +34,33 @@
         <div class="chat-header-sub" id="ctx-status">Loading your team data…</div>
       </div>
     </div>
-    <button class="chat-refresh-btn" id="refresh-btn" onclick="refreshContext()" title="Refresh team data">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
-        <polyline points="23 4 23 10 17 10"/>
-        <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
-      </svg>
-      Refresh
-    </button>
+    <div class="chat-header-actions">
+      <button class="chat-history-btn" onclick="openHistory()" title="Past conversations">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+          <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+          <path d="M3 3v5h5"/>
+          <path d="M12 7v5l4 2"/>
+        </svg>
+        History
+        <span class="chat-history-count" id="history-count" style="display:none"></span>
+      </button>
+      <button class="chat-new-btn" onclick="newConversation()" title="New conversation">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+          <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+        </svg>
+        New
+      </button>
+      <button class="chat-refresh-btn" id="refresh-btn" onclick="refreshContext()" title="Refresh team data">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+          <polyline points="23 4 23 10 17 10"/>
+          <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+        </svg>
+        Refresh
+      </button>
+    </div>
   </div>
 
-  {# ── Messages ──────────────────────────────────────────────── #}
+  {# ── Messages ──────────────────────────────────────────────────── #}
   <div class="chat-messages" id="chat-messages">
     <div class="msg-row msg-assistant">
       <div class="msg-avatar">AI</div>
@@ -79,11 +110,169 @@ const inputEl    = document.getElementById('chat-input');
 const sendBtn    = document.getElementById('send-btn');
 const ctxStatus  = document.getElementById('ctx-status');
 
-// Conversation history sent to the API
 let history = [];
 let isStreaming = false;
+let currentConvId = null;
 
-// ── Context warm-up ────────────────────────────────────────────
+// ── LocalStorage chat history ──────────────────────────────────────
+const LS_PREFIX = 'gh_chat_';
+
+function genId() {
+  return LS_PREFIX + Date.now();
+}
+
+function saveConversation() {
+  if (!currentConvId || history.length === 0) return;
+  const first = history.find(m => m.role === 'user');
+  const preview = first ? first.content.slice(0, 90) : 'Conversation';
+  const saved = {
+    id: currentConvId,
+    date: new Date().toISOString(),
+    preview,
+    history: [...history],
+  };
+  try {
+    localStorage.setItem(currentConvId, JSON.stringify(saved));
+  } catch (e) {}
+  updateHistoryCount();
+}
+
+function loadAllConversations() {
+  const convs = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (!key.startsWith(LS_PREFIX)) continue;
+    try {
+      const data = JSON.parse(localStorage.getItem(key));
+      if (data && data.history && data.history.length > 0) convs.push(data);
+    } catch (e) {}
+  }
+  return convs.sort((a, b) => new Date(b.date) - new Date(a.date));
+}
+
+function updateHistoryCount() {
+  const convs = loadAllConversations();
+  const countEl = document.getElementById('history-count');
+  if (convs.length > 0) {
+    countEl.textContent = convs.length;
+    countEl.style.display = 'inline-flex';
+  } else {
+    countEl.style.display = 'none';
+  }
+}
+
+function newConversation() {
+  if (history.length > 0) saveConversation();
+  currentConvId = genId();
+  history = [];
+  messagesEl.innerHTML = '';
+  const row = document.createElement('div');
+  row.className = 'msg-row msg-assistant';
+  row.innerHTML = `<div class="msg-avatar">AI</div>
+    <div class="msg-bubble">
+      <p>New conversation started. Ask me anything about your fantasy team!</p>
+    </div>`;
+  messagesEl.appendChild(row);
+  document.getElementById('suggestions').style.display = 'flex';
+  inputEl.value = '';
+  inputEl.style.height = 'auto';
+}
+
+function restoreConversation(convData) {
+  if (history.length > 0) saveConversation();
+  history = [...convData.history];
+  currentConvId = convData.id;
+
+  messagesEl.innerHTML = '';
+  for (const msg of history) {
+    const row = document.createElement('div');
+    row.className = `msg-row msg-${msg.role}`;
+    const avatar = document.createElement('div');
+    avatar.className = 'msg-avatar';
+    avatar.textContent = msg.role === 'user' ? 'You' : 'AI';
+    const bubble = document.createElement('div');
+    bubble.className = 'msg-bubble';
+    bubble.innerHTML = msg.role === 'assistant' ? marked.parse(msg.content) : '';
+    if (msg.role === 'user') bubble.textContent = msg.content;
+    if (msg.role === 'user') { row.appendChild(bubble); row.appendChild(avatar); }
+    else { row.appendChild(avatar); row.appendChild(bubble); }
+    messagesEl.appendChild(row);
+  }
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+  document.getElementById('suggestions').style.display = 'none';
+  closeHistory();
+}
+
+// ── History panel ──────────────────────────────────────────────────
+function openHistory() {
+  const convs = loadAllConversations();
+  const listEl = document.getElementById('history-list');
+  const emptyEl = document.getElementById('history-empty');
+  const clearBtn = document.getElementById('history-clear-btn');
+
+  listEl.innerHTML = '';
+
+  if (convs.length === 0) {
+    emptyEl.style.display = 'block';
+    clearBtn.style.display = 'none';
+  } else {
+    emptyEl.style.display = 'none';
+    clearBtn.style.display = 'block';
+    convs.forEach(c => {
+      const item = document.createElement('div');
+      item.className = 'chat-history-item';
+      const date = new Date(c.date);
+      const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      const timeStr = date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+      item.innerHTML = `
+        <div class="chat-history-item-inner" onclick="restoreConversation(${JSON.stringify(c).replace(/"/g, '&quot;')})">
+          <div class="chi-meta">${dateStr} · ${timeStr}</div>
+          <div class="chi-preview">${c.preview}</div>
+          <div class="chi-count">${c.history.filter(m=>m.role==='user').length} messages</div>
+        </div>
+        <button class="chi-delete" title="Delete" onclick="deleteConversation('${c.id}', this)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12">
+            <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/>
+          </svg>
+        </button>
+      `;
+      listEl.appendChild(item);
+    });
+  }
+
+  document.getElementById('history-panel').classList.add('open');
+  document.getElementById('history-overlay').classList.add('open');
+}
+
+function closeHistory() {
+  document.getElementById('history-panel').classList.remove('open');
+  document.getElementById('history-overlay').classList.remove('open');
+}
+
+function deleteConversation(id, btn) {
+  localStorage.removeItem(id);
+  btn.closest('.chat-history-item').remove();
+  const remaining = document.querySelectorAll('.chat-history-item').length;
+  if (remaining === 0) {
+    document.getElementById('history-empty').style.display = 'block';
+    document.getElementById('history-clear-btn').style.display = 'none';
+  }
+  updateHistoryCount();
+}
+
+function clearAllHistory() {
+  if (!confirm('Delete all saved conversations?')) return;
+  for (let i = localStorage.length - 1; i >= 0; i--) {
+    const key = localStorage.key(i);
+    if (key && key.startsWith(LS_PREFIX)) localStorage.removeItem(key);
+  }
+  document.getElementById('history-list').innerHTML = '';
+  document.getElementById('history-empty').style.display = 'block';
+  document.getElementById('history-clear-btn').style.display = 'none';
+  updateHistoryCount();
+}
+
+// ── Context warm-up ────────────────────────────────────────────────
 async function warmContext() {
   try {
     const res = await fetch('/api/chat/warm', { method: 'POST' });
@@ -121,9 +310,7 @@ async function refreshContext() {
   }
 }
 
-warmContext();
-
-// ── Auto-grow textarea ─────────────────────────────────────────
+// ── Auto-grow textarea ─────────────────────────────────────────────
 inputEl.addEventListener('input', () => {
   inputEl.style.height = 'auto';
   inputEl.style.height = Math.min(inputEl.scrollHeight, 160) + 'px';
@@ -136,7 +323,7 @@ inputEl.addEventListener('keydown', (e) => {
   }
 });
 
-// ── Suggestion chips ───────────────────────────────────────────
+// ── Suggestion chips ───────────────────────────────────────────────
 function useSuggestion(btn) {
   inputEl.value = btn.textContent;
   inputEl.dispatchEvent(new Event('input'));
@@ -144,7 +331,7 @@ function useSuggestion(btn) {
   document.getElementById('suggestions').style.display = 'none';
 }
 
-// ── Render helpers ─────────────────────────────────────────────
+// ── Render helpers ─────────────────────────────────────────────────
 function scrollBottom() {
   messagesEl.scrollTop = messagesEl.scrollHeight;
 }
@@ -191,23 +378,19 @@ function finalizeStreamingBubble(bubbleEl, text) {
   scrollBottom();
 }
 
-// ── Send message ───────────────────────────────────────────────
+// ── Send message ───────────────────────────────────────────────────
 async function sendMessage() {
   const text = inputEl.value.trim();
   if (!text || isStreaming) return;
 
-  // Hide suggestions after first message
   document.getElementById('suggestions').style.display = 'none';
 
-  // Add user message to UI and history
   addMessage('user', text);
   history.push({ role: 'user', content: text });
 
-  // Clear input
   inputEl.value = '';
   inputEl.style.height = 'auto';
 
-  // Add streaming assistant bubble
   const bubble = addMessage('assistant', '', true);
   isStreaming = true;
   sendBtn.disabled = true;
@@ -257,6 +440,7 @@ async function sendMessage() {
 
     finalizeStreamingBubble(bubble, accumulated);
     history.push({ role: 'assistant', content: accumulated });
+    saveConversation();
 
   } catch (e) {
     finalizeStreamingBubble(bubble, `**Connection error:** ${e.message}`);
@@ -267,5 +451,10 @@ async function sendMessage() {
     inputEl.focus();
   }
 }
+
+// ── Boot ───────────────────────────────────────────────────────────
+currentConvId = genId();
+updateHistoryCount();
+warmContext();
 </script>
 {% endblock %}

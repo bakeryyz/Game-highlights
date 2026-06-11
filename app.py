@@ -304,6 +304,26 @@ def api_chat():
     )
 
 
+@app.route("/statcast")
+def statcast_page():
+    return render_template("statcast.html", current_year=sc_module._CURRENT_YEAR)
+
+
+@app.route("/api/statcast/leaderboard")
+def statcast_leaderboard_api():
+    ptype = request.args.get("type", "batter")
+    year = int(request.args.get("year", sc_module._CURRENT_YEAR))
+
+    if ptype == "pitcher":
+        data = sc_module.get_pitcher_leaderboard(year)
+    elif ptype == "speed":
+        data = sc_module.get_speed_leaderboard(year)
+    else:
+        data = sc_module.get_batter_leaderboard(year)
+
+    return jsonify({"data": data, "year": year, "type": ptype})
+
+
 @app.route("/player/<int:mlbam_id>")
 def player(mlbam_id):
     player_info = statsapi.player_stat_data(

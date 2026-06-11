@@ -1,0 +1,328 @@
+{% extends "base.html" %}
+{% block title %}Statcast — Game Highlights{% endblock %}
+{% block nav_statcast %}sidebar-link-active{% endblock %}
+
+{% block content %}
+<div class="lb-shell">
+
+  <!-- Header -->
+  <div class="lb-header">
+    <div class="lb-header-left">
+      <div class="lb-header-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+        </svg>
+      </div>
+      <div>
+        <h1 class="lb-title">Statcast Leaderboards</h1>
+        <p class="lb-subtitle">Exit velocity, barrels &amp; sprint speed — powered by Baseball Savant</p>
+      </div>
+    </div>
+    <div class="lb-year-badge">{{ current_year }}</div>
+  </div>
+
+  <!-- Controls -->
+  <div class="lb-controls">
+    <div class="lb-tabs" role="tablist">
+      <button class="lb-tab lb-tab-active" data-type="batter">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M4.93 4.93c4.05 4.05 10.1 10.1 14.14 14.14"/><path d="M4.93 19.07C8.98 15.02 15.02 8.98 19.07 4.93"/></svg>
+        Batters
+      </button>
+      <button class="lb-tab" data-type="pitcher">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+        Pitchers
+      </button>
+      <button class="lb-tab" data-type="speed">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+        Sprint Speed
+      </button>
+    </div>
+    <div class="lb-search-wrap">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input type="search" id="lb-search" class="lb-search" placeholder="Search players…" autocomplete="off">
+    </div>
+  </div>
+
+  <!-- Table section -->
+  <div class="lb-body">
+
+    <div class="lb-loading" id="lb-loading">
+      <div class="lb-spinner"></div>
+      <p class="lb-loading-msg" id="lb-loading-msg">Loading from Baseball Savant…</p>
+      <p class="lb-loading-hint">First load may take ~10 seconds</p>
+    </div>
+
+    <div class="lb-error" id="lb-error" style="display:none">
+      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      <p id="lb-error-msg">Failed to load data</p>
+    </div>
+
+    <div id="lb-table-wrap" style="display:none">
+      <div class="lb-table-meta">
+        <span id="lb-count"></span>
+        <span class="lb-meta-note" id="lb-meta-note"></span>
+      </div>
+      <div class="lb-table-scroll">
+        <table class="lb-table" id="lb-table">
+          <thead id="lb-thead"></thead>
+          <tbody id="lb-tbody"></tbody>
+        </table>
+      </div>
+      <div class="lb-empty" id="lb-empty" style="display:none">No players match your search</div>
+    </div>
+
+  </div>
+
+  <div class="lb-attribution">
+    Data from <a href="https://baseballsavant.mlb.com/" target="_blank" rel="noopener">Baseball Savant</a> via pybaseball · Cached 24 hours
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const YEAR = {{ current_year }};
+
+const CONFIGS = {
+  batter: {
+    label: 'Exit Velocity — Batters',
+    note: 'Min 10 batted ball events · Higher is better',
+    defaultSort: 'avg_ev',
+    defaultAsc: false,
+    cols: [
+      { key: 'name',       label: 'Player',     link: true,  sortable: true },
+      { key: 'attempts',   label: 'BBE',         sortable: true, fmt: v => v },
+      { key: 'avg_ev',     label: 'Avg EV',      sortable: true, unit: 'mph',
+        fmt: v => v != null ? v.toFixed(1) : null,
+        thresholds: [91, 88] },
+      { key: 'max_ev',     label: 'Max EV',      sortable: true, unit: 'mph',
+        fmt: v => v != null ? v.toFixed(1) : null,
+        thresholds: [115, 108] },
+      { key: 'hard_hit',   label: 'Hard Hit%',   sortable: true,
+        fmt: v => v != null ? v.toFixed(1) + '%' : null,
+        thresholds: [50, 40] },
+      { key: 'barrel_pct', label: 'Barrel%',     sortable: true,
+        fmt: v => v != null ? v.toFixed(1) + '%' : null,
+        thresholds: [12, 6] },
+      { key: 'avg_dist',   label: 'Avg Dist',    sortable: true,
+        fmt: v => v != null ? Math.round(v) + ' ft' : null,
+        thresholds: [210, 185] },
+    ],
+  },
+  pitcher: {
+    label: 'Exit Velocity Allowed — Pitchers',
+    note: 'Min 10 batted ball events · Lower is better',
+    defaultSort: 'avg_ev',
+    defaultAsc: true,
+    cols: [
+      { key: 'name',       label: 'Player',      link: true,  sortable: true },
+      { key: 'attempts',   label: 'BBE',          sortable: true, fmt: v => v },
+      { key: 'avg_ev',     label: 'Avg EV',       sortable: true, unit: 'mph',
+        fmt: v => v != null ? v.toFixed(1) : null,
+        thresholds: [87.5, 90.5], lower: true },
+      { key: 'max_ev',     label: 'Max EV',       sortable: true, unit: 'mph',
+        fmt: v => v != null ? v.toFixed(1) : null,
+        thresholds: [108, 114], lower: true },
+      { key: 'hard_hit',   label: 'Hard Hit%',    sortable: true,
+        fmt: v => v != null ? v.toFixed(1) + '%' : null,
+        thresholds: [35, 43], lower: true },
+      { key: 'barrel_pct', label: 'Barrel%',      sortable: true,
+        fmt: v => v != null ? v.toFixed(1) + '%' : null,
+        thresholds: [6, 9.5], lower: true },
+    ],
+  },
+  speed: {
+    label: 'Sprint Speed',
+    note: 'Min 5 opportunities · ft/s',
+    defaultSort: 'sprint_speed',
+    defaultAsc: false,
+    cols: [
+      { key: 'name',         label: 'Player',       link: true, sortable: true },
+      { key: 'sprint_speed', label: 'Sprint Speed',  sortable: true, unit: 'ft/s',
+        fmt: v => v != null ? v.toFixed(1) : null,
+        thresholds: [30, 27.5] },
+      { key: 'hp_to_1b',    label: 'HP → 1B',       sortable: true,
+        fmt: v => v != null ? v.toFixed(2) + 's' : null,
+        thresholds: [4.1, 4.3], lower: true },
+      { key: 'n',           label: 'Opps',           sortable: true, fmt: v => v },
+    ],
+  },
+};
+
+let currentType = 'batter';
+let currentData = [];
+let sortKey = null;
+let sortAsc = false;
+let dataCache = {};
+
+// ── Load data ─────────────────────────────────────────────────────
+async function loadData(type) {
+  const cfg = CONFIGS[type];
+  sortKey  = cfg.defaultSort;
+  sortAsc  = cfg.defaultAsc;
+
+  if (dataCache[type]) {
+    renderAll(dataCache[type]);
+    return;
+  }
+
+  setLoading(true);
+  document.getElementById('lb-error').style.display = 'none';
+  document.getElementById('lb-loading-msg').textContent = 'Downloading from Baseball Savant…';
+
+  try {
+    const res = await fetch(`/api/statcast/leaderboard?type=${type}&year=${YEAR}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json();
+    if (!json.data || !Array.isArray(json.data)) throw new Error('Bad response');
+    dataCache[type] = json.data;
+    renderAll(json.data);
+  } catch (err) {
+    setLoading(false);
+    document.getElementById('lb-error').style.display = 'flex';
+    document.getElementById('lb-error-msg').textContent = `Failed to load: ${err.message}`;
+  }
+}
+
+function setLoading(show) {
+  document.getElementById('lb-loading').style.display     = show ? 'flex' : 'none';
+  document.getElementById('lb-table-wrap').style.display  = show ? 'none' : 'block';
+}
+
+// ── Render ────────────────────────────────────────────────────────
+function renderAll(data) {
+  currentData = data;
+  buildHeaders();
+  applySort();
+  setLoading(false);
+  document.getElementById('lb-meta-note').textContent = CONFIGS[currentType].note;
+}
+
+function buildHeaders() {
+  const cols = CONFIGS[currentType].cols;
+  const thead = document.getElementById('lb-thead');
+  thead.innerHTML = '<tr>' +
+    '<th class="lb-th lb-th-rank">#</th>' +
+    cols.map(c => {
+      const cls = ['lb-th'];
+      if (c.key === 'name') cls.push('lb-th-name');
+      if (c.sortable) cls.push('lb-th-sort');
+      if (sortKey === c.key) cls.push(sortAsc ? 'lb-sort-asc' : 'lb-sort-desc');
+      return `<th class="${cls.join(' ')}" data-key="${c.key}">${c.label}</th>`;
+    }).join('') +
+    '</tr>';
+
+  thead.querySelectorAll('th[data-key]').forEach(th => {
+    th.addEventListener('click', () => {
+      const key = th.dataset.key;
+      if (sortKey === key) {
+        sortAsc = !sortAsc;
+      } else {
+        sortKey = key;
+        sortAsc = key === 'name';
+      }
+      applySort();
+    });
+  });
+}
+
+function applySort() {
+  const search = document.getElementById('lb-search').value.toLowerCase().trim();
+  let list = search
+    ? currentData.filter(r => (r.name || '').toLowerCase().includes(search))
+    : [...currentData];
+
+  if (sortKey) {
+    list.sort((a, b) => {
+      let av = a[sortKey], bv = b[sortKey];
+      if (av == null) return 1;
+      if (bv == null) return -1;
+      if (typeof av === 'string') return sortAsc ? av.localeCompare(bv) : bv.localeCompare(av);
+      return sortAsc ? av - bv : bv - av;
+    });
+  }
+
+  renderRows(list);
+
+  // Update sort indicators in headers
+  document.querySelectorAll('#lb-thead th[data-key]').forEach(th => {
+    th.classList.remove('lb-sort-asc', 'lb-sort-desc');
+    if (th.dataset.key === sortKey) {
+      th.classList.add(sortAsc ? 'lb-sort-asc' : 'lb-sort-desc');
+    }
+  });
+
+  const total = currentData.length;
+  const shown = list.length;
+  document.getElementById('lb-count').textContent =
+    shown === total ? `${total} players` : `${shown} of ${total} players`;
+  document.getElementById('lb-empty').style.display = shown === 0 ? 'block' : 'none';
+}
+
+function cellClass(val, thresholds, lower) {
+  if (val == null) return '';
+  const [great, avg] = thresholds;
+  if (lower) {
+    return val <= great ? 'lb-great' : val <= avg ? 'lb-avg' : 'lb-low';
+  }
+  return val >= great ? 'lb-great' : val >= avg ? 'lb-avg' : 'lb-low';
+}
+
+function renderRows(list) {
+  const cols = CONFIGS[currentType].cols;
+  const tbody = document.getElementById('lb-tbody');
+  const frag = document.createDocumentFragment();
+
+  list.forEach((row, i) => {
+    const tr = document.createElement('tr');
+    let html = `<td class="lb-rank">${i + 1}</td>`;
+
+    for (const col of cols) {
+      const val = row[col.key];
+      const rawDisplay = (val != null && col.fmt) ? col.fmt(val) : (val != null ? val : null);
+      const display = rawDisplay != null ? rawDisplay : '—';
+
+      if (col.link && row.player_id) {
+        html += `<td class="lb-cell lb-name-cell"><a class="lb-player-link" href="/player/${row.player_id}">${display}</a></td>`;
+      } else if (col.thresholds) {
+        const cls = cellClass(val, col.thresholds, col.lower);
+        html += `<td class="lb-cell lb-stat ${cls}">${display}</td>`;
+      } else {
+        html += `<td class="lb-cell lb-dim">${display}</td>`;
+      }
+    }
+
+    tr.innerHTML = html;
+    frag.appendChild(tr);
+  });
+
+  tbody.innerHTML = '';
+  tbody.appendChild(frag);
+}
+
+// ── Tab switching ─────────────────────────────────────────────────
+document.querySelectorAll('.lb-tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.lb-tab').forEach(b => b.classList.remove('lb-tab-active'));
+    btn.classList.add('lb-tab-active');
+    currentType = btn.dataset.type;
+    document.getElementById('lb-search').value = '';
+
+    if (dataCache[currentType]) {
+      renderAll(dataCache[currentType]);
+    } else {
+      setLoading(true);
+      document.getElementById('lb-error').style.display = 'none';
+      loadData(currentType);
+    }
+  });
+});
+
+// ── Search ────────────────────────────────────────────────────────
+document.getElementById('lb-search').addEventListener('input', applySort);
+
+// ── Boot ──────────────────────────────────────────────────────────
+loadData('batter');
+</script>
+{% endblock %}

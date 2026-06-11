@@ -289,3 +289,93 @@ def compute_percentiles(mlbam_id: int, metrics: dict, year: int = _CURRENT_YEAR)
         result["ev_against"] = _pct_rank(ev_vals, metrics.get("avg_ev_against"), lower_is_better=True)
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# Leaderboard pages
+# ---------------------------------------------------------------------------
+
+def _parse_player_name(raw) -> str:
+    """Parse 'Last, First' → 'First Last'."""
+    raw = str(raw).strip()
+    if "," in raw:
+        last, first = raw.split(",", 1)
+        return f"{first.strip()} {last.strip()}"
+    return raw
+
+
+def _find_name_col(row: dict) -> str:
+    for key in row:
+        if "last_name" in str(key).lower():
+            return key
+    return ""
+
+
+def get_batter_leaderboard(year: int = _CURRENT_YEAR) -> list[dict]:
+    raw = _get_leaderboard(year, "B")
+    result = []
+    for r in raw:
+        name_key = _find_name_col(r)
+        result.append({
+            "player_id": r.get("player_id"),
+            "name": _parse_player_name(r.get(name_key, "")),
+            "attempts": r.get("attempts"),
+            "avg_ev": r.get("avg_hit_speed"),
+            "max_ev": r.get("max_hit_speed"),
+            "hard_hit": r.get("ev95percent"),
+            "barrel_pct": r.get("brl_percent"),
+            "avg_dist": r.get("avg_distance"),
+        })
+    result.sort(key=lambda x: x.get("avg_ev") or 0, reverse=True)
+    return result
+
+
+def get_pitcher_leaderboard(year: int = _CURRENT_YEAR) -> list[dict]:
+    raw = _get_leaderboard(year, "P")
+    result = []
+    for r in raw:
+        name_key = _find_name_col(r)
+        result.append({
+            "player_id": r.get("player_id"),
+            "name": _parse_player_name(r.get(name_key, "")),
+            "attempts": r.get("attempts"),
+            "avg_ev": r.get("avg_hit_speed"),
+            "max_ev": r.get("max_hit_speed"),
+            "hard_hit": r.get("ev95percent"),
+            "barrel_pct": r.get("brl_percent"),
+        })
+    result.sort(key=lambda x: x.get("avg_ev") or 999)
+    return result
+
+
+def get_speed_leaderboard(year: int = _CURRENT_YEAR) -> list[dict]:
+    cache_key = f"lb_speed_{year}"
+    cached = _cache_get(cache_key, 86400)
+    if cached is not None:
+        return cached
+
+    try:
+        import pybaseball as pb
+        pb.cache.enable()
+        df = pb.statcast_sprint_speed(year, minOF=5)
+        if df is None or df.empty:
+            return []
+
+        name_col = next((c for c in df.columns if "last_name" in c.lower()), None)
+        result = []
+        for _, row in df.iterrows():
+            name = _parse_player_name(row[name_col]) if name_col else "Unknown"
+            result.append({
+                "player_id": int(row["player_id"]) if pd.notna(row.get("player_id")) else None,
+                "name": name,
+                "sprint_speed": round(float(row["sprint_speed"]), 1) if pd.notna(row.get("sprint_speed")) else None,
+                "hp_to_1b": round(float(row["hp_to_1b"]), 2) if pd.notna(row.get("hp_to_1b")) else None,
+                "n": int(row["n"]) if pd.notna(row.get("n")) else None,
+            })
+
+        result.sort(key=lambda x: x.get("sprint_speed") or 0, reverse=True)
+        _cache_set(cache_key, result)
+        return result
+    except Exception as e:
+        log.warning(f"Speed leaderboard {year} failed: {e}")
+        return []
