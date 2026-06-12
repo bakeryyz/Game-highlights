@@ -37,7 +37,8 @@ _ABBREV = {
 SYSTEM_PREAMBLE = """You are an expert fantasy baseball AI advisor embedded in a personal stats dashboard.
 
 You have deep knowledge of:
-- MLB statistics and sabermetrics (wOBA, FIP, xFIP, barrel%, exit velocity, etc.)
+- MLB statistics and sabermetrics (wOBA, xwOBA, FIP, xERA, barrel%, exit velocity, hard hit%, sweet spot%, etc.)
+- Expected stats interpretation: xBA, xSLG, xwOBA, xERA vs actuals to identify luck vs skill
 - Fantasy baseball strategy in points leagues, H2H categories, and roto
 - Ballpark factors (e.g. Coors Field benefits hitters, Oracle Park suppresses HRs)
 - Matchup analysis: batter vs pitcher tendencies, platoon advantages, recent form
@@ -48,6 +49,7 @@ You have deep knowledge of:
 - You **DO have** the user's roster, matchup score, today's games, opposing pitchers, scoring settings, and waiver wire — it is all in the context below
 - **Never say** "I don't have access to that data" or "I can't see your league" — you can, it is all below
 - When asked about waiver wire pickups, use the WAIVER WIRE section — those are the actual available players in their specific league right now
+- Use the STATCAST DATA section to identify players overperforming/underperforming their expected stats (xwOBA, xERA). A player with xwOBA well above actual wOBA is a buy-low candidate. A pitcher with ERA well below xERA is a sell-high or streaming risk
 - Reference specific player names and real stats. Be direct: "Start X because..." or "Pick up Y — they face Z today (ERA 4.21, soft matchup)"
 - Keep responses scannable: bold the key names, use bullet points, give a clear recommendation first
 
@@ -104,6 +106,13 @@ def _assemble(provider) -> str:
         parts.append(_fmt_today_games(all_my_players))
     except Exception as e:
         parts.append(f"## TODAY'S GAMES\nUnavailable: {e}")
+
+    # ── Statcast / expected stats ─────────────────────────────────
+    try:
+        from data_sources import statcast as sc_module
+        parts.append(sc_module.get_statcast_context_for_roster(all_my_players))
+    except Exception as e:
+        parts.append(f"## STATCAST DATA\nUnavailable: {e}")
 
     # ── Waiver wire / free agents ─────────────────────────────────
     try:

@@ -316,13 +316,17 @@ def statcast_leaderboard_api():
     ptype = request.args.get("type", "batter")
     year = int(request.args.get("year", sc_module._CURRENT_YEAR))
 
-    if ptype == "pitcher":
-        data = sc_module.get_pitcher_leaderboard(year)
-    elif ptype == "speed":
-        data = sc_module.get_speed_leaderboard(year)
-    else:
-        data = sc_module.get_batter_leaderboard(year)
-
+    dispatch = {
+        "batter":       sc_module.get_batter_leaderboard,
+        "pitcher":      sc_module.get_pitcher_leaderboard,
+        "speed":        sc_module.get_speed_leaderboard,
+        "batter_xstats": sc_module.get_batter_expected_stats,
+        "pitcher_xstats": sc_module.get_pitcher_expected_stats,
+        "batter_pct":   sc_module.get_batter_percentiles,
+        "pitcher_pct":  sc_module.get_pitcher_percentiles,
+    }
+    fn = dispatch.get(ptype, sc_module.get_batter_leaderboard)
+    data = fn(year)
     return jsonify({"data": data, "year": year, "type": ptype})
 
 

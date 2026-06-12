@@ -292,8 +292,33 @@ def compute_percentiles(mlbam_id: int, metrics: dict, year: int = _CURRENT_YEAR)
 
 
 # ---------------------------------------------------------------------------
-# Leaderboard pages
+# Leaderboard pages — helpers
 # ---------------------------------------------------------------------------
+
+def _safe_float(val, decimals: int = 1):
+    try:
+        if pd.isna(val):
+            return None
+        return round(float(val), decimals)
+    except Exception:
+        return None
+
+
+def _safe_int(val):
+    try:
+        if pd.isna(val):
+            return None
+        return int(val)
+    except Exception:
+        return None
+
+
+def _find_name_col_df(df: pd.DataFrame) -> str:
+    for c in df.columns:
+        if "last_name" in str(c).lower():
+            return c
+    return df.columns[0] if len(df.columns) > 0 else ""
+
 
 def _parse_player_name(raw) -> str:
     """Parse 'Last, First' → 'First Last'."""
@@ -379,3 +404,240 @@ def get_speed_leaderboard(year: int = _CURRENT_YEAR) -> list[dict]:
     except Exception as e:
         log.warning(f"Speed leaderboard {year} failed: {e}")
         return []
+
+
+def get_batter_expected_stats(year: int = _CURRENT_YEAR) -> list[dict]:
+    """xBA, xSLG, xwOBA vs actuals for batters — shows over/under performers."""
+    cache_key = f"lb_batter_xstats_{year}"
+    cached = _cache_get(cache_key, 86400)
+    if cached is not None:
+        return cached
+
+    try:
+        import pybaseball as pb
+        pb.cache.enable()
+        df = pb.statcast_batter_expected_stats(year, minPA=25)
+        if df is None or df.empty:
+            return []
+
+        name_col = _find_name_col_df(df)
+        result = []
+        for _, row in df.iterrows():
+            result.append({
+                "player_id": _safe_int(row.get("player_id")),
+                "name": _parse_player_name(row.get(name_col, "")),
+                "pa": _safe_int(row.get("pa")),
+                "ba": _safe_float(row.get("ba"), 3),
+                "xba": _safe_float(row.get("xba"), 3),
+                "xba_diff": _safe_float(row.get("xba_minus_ba_diff"), 3),
+                "slg": _safe_float(row.get("slg"), 3),
+                "xslg": _safe_float(row.get("xslg"), 3),
+                "xslg_diff": _safe_float(row.get("xslg_minus_slg_diff"), 3),
+                "woba": _safe_float(row.get("woba"), 3),
+                "xwoba": _safe_float(row.get("xwoba"), 3),
+                "xwoba_diff": _safe_float(row.get("xwoba_minus_woba_diff"), 3),
+                "xwobacon": _safe_float(row.get("xwobacon"), 3),
+                "barrel_pct": _safe_float(row.get("barrel_batted_rate"), 1),
+                "hard_hit": _safe_float(row.get("hard_hit_percent"), 1),
+                "sweet_spot": _safe_float(row.get("sweet_spot_percent"), 1),
+                "avg_ev": _safe_float(row.get("exit_velocity_avg"), 1),
+                "avg_la": _safe_float(row.get("launch_angle_avg"), 1),
+                "whiff": _safe_float(row.get("whiff_percent"), 1),
+                "swing": _safe_float(row.get("swing_percent"), 1),
+            })
+
+        result.sort(key=lambda x: x.get("xwoba") or 0, reverse=True)
+        _cache_set(cache_key, result)
+        return result
+    except Exception as e:
+        log.warning(f"Batter xstats {year} failed: {e}")
+        return []
+
+
+def get_pitcher_expected_stats(year: int = _CURRENT_YEAR) -> list[dict]:
+    """xERA, xBA/xwOBA allowed vs actuals for pitchers — identifies regression candidates."""
+    cache_key = f"lb_pitcher_xstats_{year}"
+    cached = _cache_get(cache_key, 86400)
+    if cached is not None:
+        return cached
+
+    try:
+        import pybaseball as pb
+        pb.cache.enable()
+        df = pb.statcast_pitcher_expected_stats(year, minPA=25)
+        if df is None or df.empty:
+            return []
+
+        name_col = _find_name_col_df(df)
+        result = []
+        for _, row in df.iterrows():
+            result.append({
+                "player_id": _safe_int(row.get("player_id")),
+                "name": _parse_player_name(row.get(name_col, "")),
+                "pa": _safe_int(row.get("pa")),
+                "era": _safe_float(row.get("era"), 2),
+                "xera": _safe_float(row.get("xera"), 2),
+                "xera_diff": _safe_float(row.get("xera_minus_era_diff"), 2),
+                "ba": _safe_float(row.get("ba"), 3),
+                "xba": _safe_float(row.get("xba"), 3),
+                "xba_diff": _safe_float(row.get("xba_minus_ba_diff"), 3),
+                "woba": _safe_float(row.get("woba"), 3),
+                "xwoba": _safe_float(row.get("xwoba"), 3),
+                "xwoba_diff": _safe_float(row.get("xwoba_minus_woba_diff"), 3),
+                "babip": _safe_float(row.get("babip"), 3),
+                "xbabip": _safe_float(row.get("xbabip"), 3),
+                "hard_hit": _safe_float(row.get("hard_hit_percent"), 1),
+                "barrel_pct": _safe_float(row.get("barrel_batted_rate"), 1),
+                "sweet_spot": _safe_float(row.get("sweet_spot_percent"), 1),
+                "avg_ev": _safe_float(row.get("exit_velocity_avg"), 1),
+                "whiff": _safe_float(row.get("whiff_percent"), 1),
+            })
+
+        result.sort(key=lambda x: x.get("xera") or 99)
+        _cache_set(cache_key, result)
+        return result
+    except Exception as e:
+        log.warning(f"Pitcher xstats {year} failed: {e}")
+        return []
+
+
+def get_batter_percentiles(year: int = _CURRENT_YEAR) -> list[dict]:
+    """Baseball Savant-style percentile ranks (0–100) for batters. Higher = better for all metrics."""
+    cache_key = f"lb_batter_pct_{year}"
+    cached = _cache_get(cache_key, 86400)
+    if cached is not None:
+        return cached
+
+    try:
+        import pybaseball as pb
+        pb.cache.enable()
+        df = pb.statcast_batter_percentile_ranks(year)
+        if df is None or df.empty:
+            return []
+
+        result = []
+        for _, row in df.iterrows():
+            result.append({
+                "player_id": _safe_int(row.get("player_id")),
+                "name": str(row.get("player_name", "")).strip(),
+                "team": str(row.get("team", "")).strip(),
+                "xba": _safe_int(row.get("xba")),
+                "xslg": _safe_int(row.get("xslg")),
+                "xwoba": _safe_int(row.get("xwoba")),
+                "xwobacon": _safe_int(row.get("xwobacon")),
+                "exit_velocity": _safe_int(row.get("exit_velocity")),
+                "brl_percent": _safe_int(row.get("brl_percent")),
+                "hard_hit": _safe_int(row.get("hard_hit_percent")),
+                "sprint_speed": _safe_int(row.get("sprint_speed")),
+                "k_pct": _safe_int(row.get("k_percent")),
+                "bb_pct": _safe_int(row.get("bb_percent")),
+                "whiff": _safe_int(row.get("whiff_percent")),
+                "sweet_spot": _safe_int(row.get("sweet_spot_percent")),
+            })
+
+        result.sort(key=lambda x: x.get("xwoba") or 0, reverse=True)
+        _cache_set(cache_key, result)
+        return result
+    except Exception as e:
+        log.warning(f"Batter percentiles {year} failed: {e}")
+        return []
+
+
+def get_pitcher_percentiles(year: int = _CURRENT_YEAR) -> list[dict]:
+    """Baseball Savant-style percentile ranks (0–100) for pitchers. Higher = better for all metrics."""
+    cache_key = f"lb_pitcher_pct_{year}"
+    cached = _cache_get(cache_key, 86400)
+    if cached is not None:
+        return cached
+
+    try:
+        import pybaseball as pb
+        pb.cache.enable()
+        df = pb.statcast_pitcher_percentile_ranks(year)
+        if df is None or df.empty:
+            return []
+
+        result = []
+        for _, row in df.iterrows():
+            result.append({
+                "player_id": _safe_int(row.get("player_id")),
+                "name": str(row.get("player_name", "")).strip(),
+                "team": str(row.get("team", "")).strip(),
+                "xba": _safe_int(row.get("xba")),
+                "xslg": _safe_int(row.get("xslg")),
+                "xwoba": _safe_int(row.get("xwoba")),
+                "xwobacon": _safe_int(row.get("xwobacon")),
+                "exit_velocity": _safe_int(row.get("exit_velocity")),
+                "brl_percent": _safe_int(row.get("brl_percent")),
+                "hard_hit": _safe_int(row.get("hard_hit_percent")),
+                "k_pct": _safe_int(row.get("k_percent")),
+                "bb_pct": _safe_int(row.get("bb_percent")),
+                "whiff": _safe_int(row.get("whiff_percent")),
+                "meatball_swing": _safe_int(row.get("meatball_swing_percent")),
+                "chase": _safe_int(row.get("oz_swing_percent")),
+            })
+
+        result.sort(key=lambda x: x.get("xwoba") or 0, reverse=True)
+        _cache_set(cache_key, result)
+        return result
+    except Exception as e:
+        log.warning(f"Pitcher percentiles {year} failed: {e}")
+        return []
+
+
+def get_statcast_context_for_roster(players: list) -> str:
+    """
+    Build a Statcast section string for the AI context.
+    players: list of objects with .name, .mlbam_id, .lineup_slot
+    Returns a formatted markdown section with regression / luck analysis.
+    """
+    batter_map = {r["player_id"]: r for r in get_batter_expected_stats() if r.get("player_id")}
+    pitcher_map = {r["player_id"]: r for r in get_pitcher_expected_stats() if r.get("player_id")}
+
+    lines = [
+        "## STATCAST DATA (Baseball Savant — Expected Stats)",
+        "Use these to identify players likely to improve (unlucky) or regress (lucky):",
+        "",
+    ]
+
+    found_any = False
+    for p in players:
+        if not p.mlbam_id:
+            continue
+        mid = int(p.mlbam_id)
+        is_pitcher = p.lineup_slot in ("SP", "RP", "P")
+
+        if is_pitcher and mid in pitcher_map:
+            found_any = True
+            d = pitcher_map[mid]
+            era = d.get("era")
+            xera = d.get("xera")
+            diff = d.get("xera_diff")  # xERA minus ERA (positive = pitcher is outperforming)
+            line = f"**{p.name}** (P): ERA {era if era is not None else '—'} / xERA {xera if xera is not None else '—'}"
+            line += f" | wOBA against {d.get('woba','—')} / xwOBA {d.get('xwoba','—')}"
+            line += f" | Hard Hit% {d.get('hard_hit','—')} | Barrel% {d.get('barrel_pct','—')}"
+            lines.append(line)
+            if diff is not None:
+                if diff > 0.5:
+                    lines.append(f"  ⚠️  xERA is {diff:.2f} HIGHER than ERA → pitcher is LUCKY, ERA likely to rise")
+                elif diff < -0.5:
+                    lines.append(f"  ✅ xERA is {abs(diff):.2f} LOWER than ERA → pitcher is UNLUCKY, ERA likely to drop")
+
+        elif not is_pitcher and mid in batter_map:
+            found_any = True
+            d = batter_map[mid]
+            diff = d.get("xwoba_diff")  # xwOBA minus wOBA (positive = batter is underperforming)
+            line = f"**{p.name}** (B): BA {d.get('ba','—')} / xBA {d.get('xba','—')}"
+            line += f" | wOBA {d.get('woba','—')} / xwOBA {d.get('xwoba','—')}"
+            line += f" | Barrel% {d.get('barrel_pct','—')} | Hard Hit% {d.get('hard_hit','—')} | Sweet Spot% {d.get('sweet_spot','—')}"
+            lines.append(line)
+            if diff is not None:
+                if diff > 0.020:
+                    lines.append(f"  ✅ xwOBA is {diff:.3f} ABOVE actual wOBA → batter is UNLUCKY/underperforming, expect improvement")
+                elif diff < -0.020:
+                    lines.append(f"  ⚠️  xwOBA is {abs(diff):.3f} BELOW actual wOBA → batter is LUCKY/overperforming, may regress")
+
+    if not found_any:
+        lines.append("(No Statcast data found for current roster players)")
+
+    return "\n".join(lines)
