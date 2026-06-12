@@ -4,7 +4,7 @@
 {% block content %}
 <div class="container">
 
-  {# ── Player Header ─────────────────────────────────────────── #}
+  {# ── Player Header ─────────────────────────────────────────────────── #}
   <div class="player-header">
     <div class="player-headshot-wrap">
       <img
@@ -24,35 +24,23 @@
     </div>
   </div>
 
-  {# ── Season Stats ──────────────────────────────────────────── #}
+  {# ── Season Stats ──────────────────────────────────────────────────── #}
   {% for stat_group in player.stats %}
     {% if stat_group.group == 'hitting' and stat_group.stats %}
     {% set s = stat_group.stats %}
     <div class="player-section">
-      <div class="player-section-label">2026 Season — Batting</div>
+      <div class="player-section-label">{{ current_year }} Season — Batting</div>
       <div class="slash-line">
+        {% for label, val in [('AVG', s.avg), ('OBP', s.obp), ('SLG', s.slg), ('OPS', s.ops)] %}
+        {% if not loop.first %}<div class="slash-sep">/</div>{% endif %}
         <div class="slash-item">
-          <div class="slash-value">{{ s.avg if s.avg else '—' }}</div>
-          <div class="slash-key">AVG</div>
+          <div class="slash-value">{{ val if val else '—' }}</div>
+          <div class="slash-key">{{ label }}</div>
         </div>
-        <div class="slash-sep">/</div>
-        <div class="slash-item">
-          <div class="slash-value">{{ s.obp if s.obp else '—' }}</div>
-          <div class="slash-key">OBP</div>
-        </div>
-        <div class="slash-sep">/</div>
-        <div class="slash-item">
-          <div class="slash-value">{{ s.slg if s.slg else '—' }}</div>
-          <div class="slash-key">SLG</div>
-        </div>
-        <div class="slash-sep">/</div>
-        <div class="slash-item">
-          <div class="slash-value">{{ s.ops if s.ops else '—' }}</div>
-          <div class="slash-key">OPS</div>
-        </div>
+        {% endfor %}
       </div>
       <div class="counting-stats">
-        {% for label, val in [('G', s.gamesPlayed), ('AB', s.atBats), ('H', s.hits), ('2B', s.doubles), ('3B', s.triples), ('HR', s.homeRuns), ('RBI', s.rbi), ('R', s.runs), ('SB', s.stolenBases), ('BB', s.baseOnBalls), ('SO', s.strikeOuts)] %}
+        {% for label, val in [('G', s.gamesPlayed), ('AB', s.atBats), ('H', s.hits), ('2B', s.doubles), ('3B', s.triples), ('HR', s.homeRuns), ('RBI', s.rbi), ('R', s.runs), ('SB', s.stolenBases), ('BB', s.baseOnBalls), ('SO', s.strikeOuts), ('HBP', s.hitByPitch)] %}
         {% if val is not none %}
         <div class="count-chip"><span class="count-val">{{ val }}</span><span class="count-lbl">{{ label }}</span></div>
         {% endif %}
@@ -64,30 +52,18 @@
     {% if stat_group.group == 'pitching' and stat_group.stats %}
     {% set s = stat_group.stats %}
     <div class="player-section">
-      <div class="player-section-label">2026 Season — Pitching</div>
+      <div class="player-section-label">{{ current_year }} Season — Pitching</div>
       <div class="slash-line">
-        <div class="slash-item">
-          <div class="slash-value">{{ s.era if s.era else '—' }}</div>
-          <div class="slash-key">ERA</div>
-        </div>
+        <div class="slash-item"><div class="slash-value">{{ s.era if s.era else '—' }}</div><div class="slash-key">ERA</div></div>
         <div class="slash-sep">/</div>
-        <div class="slash-item">
-          <div class="slash-value">{{ s.whip if s.whip else '—' }}</div>
-          <div class="slash-key">WHIP</div>
-        </div>
+        <div class="slash-item"><div class="slash-value">{{ s.whip if s.whip else '—' }}</div><div class="slash-key">WHIP</div></div>
         <div class="slash-sep">/</div>
-        <div class="slash-item">
-          <div class="slash-value">{{ s.strikeOuts if s.strikeOuts is not none else '—' }}</div>
-          <div class="slash-key">K</div>
-        </div>
+        <div class="slash-item"><div class="slash-value">{{ s.strikeOuts if s.strikeOuts is not none else '—' }}</div><div class="slash-key">K</div></div>
         <div class="slash-sep">/</div>
-        <div class="slash-item">
-          <div class="slash-value">{{ s.wins if s.wins is not none else '—' }}-{{ s.losses if s.losses is not none else '—' }}</div>
-          <div class="slash-key">W-L</div>
-        </div>
+        <div class="slash-item"><div class="slash-value">{{ s.wins if s.wins is not none else '—' }}-{{ s.losses if s.losses is not none else '—' }}</div><div class="slash-key">W-L</div></div>
       </div>
       <div class="counting-stats">
-        {% for label, val in [('G', s.gamesPitched), ('GS', s.gamesStarted), ('IP', s.inningsPitched), ('H', s.hits), ('ER', s.earnedRuns), ('BB', s.baseOnBalls), ('HBP', s.hitByPitch), ('HR', s.homeRuns), ('SV', s.saves)] %}
+        {% for label, val in [('G', s.gamesPitched), ('GS', s.gamesStarted), ('IP', s.inningsPitched), ('H', s.hits), ('ER', s.earnedRuns), ('BB', s.baseOnBalls), ('HBP', s.hitByPitch), ('HR', s.homeRuns), ('SV', s.saves), ('K/9', s.strikeoutsPer9Inn), ('BB/9', s.walksPer9Inn)] %}
         {% if val is not none %}
         <div class="count-chip"><span class="count-val">{{ val }}</span><span class="count-lbl">{{ label }}</span></div>
         {% endif %}
@@ -97,136 +73,395 @@
     {% endif %}
   {% endfor %}
 
-  {# ── Statcast Metrics ──────────────────────────────────────── #}
+  {# ── Statcast ──────────────────────────────────────────────────────── #}
   {% if sc_metrics %}
+  {% set sc = sc_metrics %}
+  {% set pcts = sc.percentiles or {} %}
+  {% set is_batter = sc.position_type == 'B' %}
+
   <div class="player-section">
-    <div class="player-section-label">Statcast</div>
+    <div class="player-section-label">Statcast — Baseball Savant {{ current_year }}</div>
+    <div class="sc-full">
 
-    {% if sc_metrics.position_type == 'B' %}
-    <div class="sc-metrics-grid">
+      {# ── Percentile Circles ────────────────────────────────── #}
+      {% if pcts %}
+      <div class="sc-pct-banner">
+        <div class="sc-pct-banner-label">Statcast Percentile Ranks · Higher = Better</div>
+        <div class="sc-pct-circles">
+          {% if is_batter %}
+            {% set pct_metrics = [
+              ('xwOBA',       pcts.xwoba),
+              ('xwOBACON',    pcts.xwobacon),
+              ('xBA',         pcts.xba),
+              ('xSLG',        pcts.xslg),
+              ('Exit Velo',   pcts.exit_velocity),
+              ('Barrel%',     pcts.brl_percent),
+              ('Hard Hit%',   pcts.hard_hit),
+              ('Sweet Spot%', pcts.sweet_spot),
+              ('Sprint Spd',  pcts.sprint_speed),
+              ('BB%',         pcts.bb_pct),
+              ('K%',          pcts.k_pct),
+              ('Whiff%',      pcts.whiff),
+            ] %}
+          {% else %}
+            {% set pct_metrics = [
+              ('xwOBA',       pcts.xwoba),
+              ('xwOBACON',    pcts.xwobacon),
+              ('xBA',         pcts.xba),
+              ('xSLG',        pcts.xslg),
+              ('Exit Velo',   pcts.exit_velocity),
+              ('Barrel%',     pcts.brl_percent),
+              ('Hard Hit%',   pcts.hard_hit),
+              ('K%',          pcts.k_pct),
+              ('BB%',         pcts.bb_pct),
+              ('Whiff%',      pcts.whiff),
+              ('Chase%',      pcts.chase),
+              ('Meatball Sw', pcts.meatball_swing),
+            ] %}
+          {% endif %}
 
-      {% if sc_metrics.avg_exit_velo %}
-      <div class="sc-metric-row">
-        <div class="sc-metric-info">
-          <span class="sc-metric-name">Exit Velocity</span>
-          <span class="sc-metric-value">{{ sc_metrics.avg_exit_velo }} mph</span>
-        </div>
-        {% if percentiles.exit_velocity is not none %}
-        <div class="sc-percentile-wrap">
-          <div class="sc-bar-track">
-            <div class="sc-bar-fill {% if percentiles.exit_velocity >= 70 %}sc-bar-great{% elif percentiles.exit_velocity >= 45 %}sc-bar-avg{% else %}sc-bar-low{% endif %}"
-                 style="width: {{ percentiles.exit_velocity }}%"></div>
+          {% for label, val in pct_metrics %}
+          {% if val is not none %}
+          <div class="pct-metric">
+            <div class="pct-dot {% if val >= 67 %}pct-great{% elif val >= 34 %}pct-avg{% else %}pct-low{% endif %}">{{ val }}</div>
+            <div class="pct-label">{{ label }}</div>
           </div>
-          <span class="sc-pct-label">{{ percentiles.exit_velocity }}th</span>
+          {% endif %}
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
+      {# ── Expected Stats Comparison ──────────────────────────── #}
+      {% if is_batter and (sc.xwoba or sc.xba) %}
+      <div class="sc-xstats-strip">
+        {% if sc.xba is not none %}
+        <div class="sc-xstat-card">
+          <div class="sc-xstat-label">xBA</div>
+          <div class="sc-xstat-main">{{ "%.3f"|format(sc.xba)|replace("0.",".")  }}</div>
+          {% if sc.ba_official is not none %}<div class="sc-xstat-actual">Actual: {{ "%.3f"|format(sc.ba_official)|replace("0.",".") }}</div>{% endif %}
+          {% if sc.xba_diff is not none %}
+          <div class="sc-xstat-diff {% if sc.xba_diff > 0.005 %}sc-xstat-diff-pos{% elif sc.xba_diff < -0.005 %}sc-xstat-diff-neg{% else %}sc-xstat-diff-neu{% endif %}">
+            {% if sc.xba_diff > 0 %}+{% endif %}{{ "%.3f"|format(sc.xba_diff)|replace("0.",".") }}
+          </div>
+          {% endif %}
+        </div>
+        {% endif %}
+        {% if sc.xwoba is not none %}
+        <div class="sc-xstat-card">
+          <div class="sc-xstat-label">xwOBA</div>
+          <div class="sc-xstat-main">{{ "%.3f"|format(sc.xwoba)|replace("0.",".") }}</div>
+          {% if sc.woba is not none %}<div class="sc-xstat-actual">Actual: {{ "%.3f"|format(sc.woba)|replace("0.",".") }}</div>{% endif %}
+          {% if sc.xwoba_diff is not none %}
+          <div class="sc-xstat-diff {% if sc.xwoba_diff > 0.010 %}sc-xstat-diff-pos{% elif sc.xwoba_diff < -0.010 %}sc-xstat-diff-neg{% else %}sc-xstat-diff-neu{% endif %}">
+            {% if sc.xwoba_diff > 0 %}+{% endif %}{{ "%.3f"|format(sc.xwoba_diff)|replace("0.",".") }}
+          </div>
+          {% endif %}
+        </div>
+        {% endif %}
+        {% if sc.xwobacon is not none %}
+        <div class="sc-xstat-card">
+          <div class="sc-xstat-label">xwOBACON</div>
+          <div class="sc-xstat-main">{{ "%.3f"|format(sc.xwobacon)|replace("0.",".") }}</div>
+          <div class="sc-xstat-actual">Contact quality</div>
+        </div>
+        {% endif %}
+        {% if sc.barrel_rate is not none %}
+        <div class="sc-xstat-card">
+          <div class="sc-xstat-label">Barrel%</div>
+          <div class="sc-xstat-main">{{ sc.barrel_rate }}%</div>
+          {% if sc.barrel_count is not none %}<div class="sc-xstat-actual">{{ sc.barrel_count }} barrels</div>{% endif %}
+        </div>
+        {% endif %}
+        {% if sc.hard_hit_rate is not none %}
+        <div class="sc-xstat-card">
+          <div class="sc-xstat-label">Hard Hit%</div>
+          <div class="sc-xstat-main">{{ sc.hard_hit_rate }}%</div>
+          <div class="sc-xstat-actual">≥ 95 mph EV</div>
+        </div>
+        {% endif %}
+      </div>
+
+      {% elif not is_batter and (sc.xera or sc.xwoba) %}
+      <div class="sc-xstats-strip">
+        {% if sc.xera is not none %}
+        <div class="sc-xstat-card">
+          <div class="sc-xstat-label">xERA</div>
+          <div class="sc-xstat-main">{{ "%.2f"|format(sc.xera) }}</div>
+          {% if sc.era is not none %}<div class="sc-xstat-actual">ERA: {{ "%.2f"|format(sc.era) }}</div>{% endif %}
+          {% if sc.xera_diff is not none %}
+          <div class="sc-xstat-diff {% if sc.xera_diff < -0.3 %}sc-xstat-diff-pos{% elif sc.xera_diff > 0.3 %}sc-xstat-diff-neg{% else %}sc-xstat-diff-neu{% endif %}">
+            {% if sc.xera_diff > 0 %}+{% endif %}{{ "%.2f"|format(sc.xera_diff) }}
+          </div>
+          {% endif %}
+        </div>
+        {% endif %}
+        {% if sc.xwoba is not none %}
+        <div class="sc-xstat-card">
+          <div class="sc-xstat-label">xwOBA against</div>
+          <div class="sc-xstat-main">{{ "%.3f"|format(sc.xwoba)|replace("0.",".") }}</div>
+          {% if sc.avg_xwoba_against is not none %}<div class="sc-xstat-actual">Raw: {{ "%.3f"|format(sc.avg_xwoba_against)|replace("0.",".") }}</div>{% endif %}
+        </div>
+        {% endif %}
+        {% if sc.babip is not none %}
+        <div class="sc-xstat-card">
+          <div class="sc-xstat-label">BABIP</div>
+          <div class="sc-xstat-main">{{ "%.3f"|format(sc.babip)|replace("0.",".") }}</div>
+          {% if sc.xbabip is not none %}<div class="sc-xstat-actual">xBABIP: {{ "%.3f"|format(sc.xbabip)|replace("0.",".") }}</div>{% endif %}
+        </div>
+        {% endif %}
+        {% if sc.hard_hit_rate is not none %}
+        <div class="sc-xstat-card">
+          <div class="sc-xstat-label">Hard Hit% allowed</div>
+          <div class="sc-xstat-main">{{ sc.hard_hit_rate }}%</div>
+          <div class="sc-xstat-actual">≥ 95 mph EV</div>
+        </div>
+        {% endif %}
+        {% if sc.barrel_rate is not none %}
+        <div class="sc-xstat-card">
+          <div class="sc-xstat-label">Barrel% allowed</div>
+          <div class="sc-xstat-main">{{ sc.barrel_rate }}%</div>
         </div>
         {% endif %}
       </div>
       {% endif %}
 
-      {% if sc_metrics.barrel_rate is not none %}
-      <div class="sc-metric-row">
-        <div class="sc-metric-info">
-          <span class="sc-metric-name">Barrel Rate</span>
-          <span class="sc-metric-value">{{ sc_metrics.barrel_rate }}%</span>
-        </div>
-        {% if percentiles.barrel_rate is not none %}
-        <div class="sc-percentile-wrap">
-          <div class="sc-bar-track">
-            <div class="sc-bar-fill {% if percentiles.barrel_rate >= 70 %}sc-bar-great{% elif percentiles.barrel_rate >= 45 %}sc-bar-avg{% else %}sc-bar-low{% endif %}"
-                 style="width: {{ percentiles.barrel_rate }}%"></div>
+      {# ── Three-column stat grid ──────────────────────────────── #}
+      <div class="sc-stat-columns">
+
+        {# Column 1: Batted Ball #}
+        <div class="sc-stat-col">
+          <div class="sc-stat-col-header">{{ 'Batted Ball' if is_batter else 'Contact Quality Allowed' }}</div>
+          <div class="sc-stat-list">
+            {% if sc.avg_exit_velo is not none %}
+            <div class="sc-stat-row">
+              <span class="sc-stat-name">Avg Exit Velo</span>
+              <span class="sc-stat-val {% if (is_batter and sc.avg_exit_velo >= 91) or (not is_batter and sc.avg_exit_velo <= 88) %}sc-stat-great{% elif (is_batter and sc.avg_exit_velo >= 88) or (not is_batter and sc.avg_exit_velo <= 90) %}sc-stat-avg{% else %}sc-stat-low{% endif %}">{{ sc.avg_exit_velo }} mph</span>
+            </div>
+            {% endif %}
+            {% if sc.max_exit_velo is not none %}
+            <div class="sc-stat-row">
+              <span class="sc-stat-name">Max Exit Velo</span>
+              <span class="sc-stat-val">{{ sc.max_exit_velo }} mph</span>
+            </div>
+            {% endif %}
+            {% if sc.avg_launch_angle is not none %}
+            <div class="sc-stat-row">
+              <span class="sc-stat-name">Avg Launch Angle</span>
+              <span class="sc-stat-val">{{ sc.avg_launch_angle }}°</span>
+            </div>
+            {% endif %}
+            {% if sc.avg_la_against is not none %}
+            <div class="sc-stat-row">
+              <span class="sc-stat-name">Avg LA Against</span>
+              <span class="sc-stat-val">{{ sc.avg_la_against }}°</span>
+            </div>
+            {% endif %}
+            {% if sc.sweet_spot_rate is not none %}
+            <div class="sc-stat-row">
+              <span class="sc-stat-name">Sweet Spot%</span>
+              <span class="sc-stat-val {% if sc.sweet_spot_rate >= 38 %}sc-stat-great{% elif sc.sweet_spot_rate >= 32 %}sc-stat-avg{% else %}sc-stat-low{% endif %}">{{ sc.sweet_spot_rate }}%</span>
+            </div>
+            {% endif %}
+            {% if sc.avg_distance is not none %}
+            <div class="sc-stat-row">
+              <span class="sc-stat-name">Avg Distance</span>
+              <span class="sc-stat-val">{{ sc.avg_distance|int }} ft</span>
+            </div>
+            {% endif %}
+            {% if sc.gb_rate is not none %}
+            <div class="sc-stat-row"><span class="sc-stat-name">GB%</span><span class="sc-stat-val">{{ sc.gb_rate }}%</span></div>
+            <div class="sc-stat-row"><span class="sc-stat-name">LD%</span><span class="sc-stat-val {% if sc.ld_rate >= 24 %}sc-stat-great{% elif sc.ld_rate >= 18 %}sc-stat-avg{% else %}sc-stat-low{% endif %}">{{ sc.ld_rate }}%</span></div>
+            <div class="sc-stat-row"><span class="sc-stat-name">FB%</span><span class="sc-stat-val">{{ sc.fb_rate }}%</span></div>
+            <div class="sc-stat-row"><span class="sc-stat-name">PU%</span><span class="sc-stat-val {% if sc.pu_rate > 12 %}sc-stat-low{% endif %}">{{ sc.pu_rate }}%</span></div>
+            {% endif %}
+            {% if sc.pull_rate is not none %}
+            <div class="sc-stat-row"><span class="sc-stat-name">Pull%</span><span class="sc-stat-val">{{ sc.pull_rate }}%</span></div>
+            <div class="sc-stat-row"><span class="sc-stat-name">Center%</span><span class="sc-stat-val">{{ sc.center_rate }}%</span></div>
+            <div class="sc-stat-row"><span class="sc-stat-name">Oppo%</span><span class="sc-stat-val">{{ sc.oppo_rate }}%</span></div>
+            {% endif %}
+            {% if sc.n_batted is not none %}
+            <div class="sc-stat-row"><span class="sc-stat-name">Batted Balls</span><span class="sc-stat-val">{{ sc.n_batted }}</span></div>
+            {% endif %}
           </div>
-          <span class="sc-pct-label">{{ percentiles.barrel_rate }}th</span>
         </div>
-        {% endif %}
-      </div>
-      {% endif %}
 
-      {% if sc_metrics.hard_hit_rate is not none %}
-      <div class="sc-metric-row">
-        <div class="sc-metric-info">
-          <span class="sc-metric-name">Hard Hit Rate</span>
-          <span class="sc-metric-value">{{ sc_metrics.hard_hit_rate }}%</span>
-        </div>
-        {% if percentiles.hard_hit_rate is not none %}
-        <div class="sc-percentile-wrap">
-          <div class="sc-bar-track">
-            <div class="sc-bar-fill {% if percentiles.hard_hit_rate >= 70 %}sc-bar-great{% elif percentiles.hard_hit_rate >= 45 %}sc-bar-avg{% else %}sc-bar-low{% endif %}"
-                 style="width: {{ percentiles.hard_hit_rate }}%"></div>
+        {# Column 2: Plate Discipline #}
+        <div class="sc-stat-col">
+          <div class="sc-stat-col-header">{{ 'Plate Discipline' if is_batter else 'Plate Discipline (Pitcher)' }}</div>
+          <div class="sc-stat-list">
+            {% if sc.k_pct is not none %}
+            <div class="sc-stat-row">
+              <span class="sc-stat-name">K%</span>
+              <span class="sc-stat-val {% if (is_batter and sc.k_pct > 28) %}sc-stat-low{% elif (is_batter and sc.k_pct < 16) %}sc-stat-great{% elif (not is_batter and sc.k_pct >= 28) %}sc-stat-great{% elif (not is_batter and sc.k_pct < 18) %}sc-stat-low{% endif %}">{{ sc.k_pct }}%</span>
+            </div>
+            {% endif %}
+            {% if sc.bb_pct is not none %}
+            <div class="sc-stat-row">
+              <span class="sc-stat-name">BB%</span>
+              <span class="sc-stat-val {% if (is_batter and sc.bb_pct >= 12) %}sc-stat-great{% elif (is_batter and sc.bb_pct >= 8) %}sc-stat-avg{% elif (not is_batter and sc.bb_pct > 10) %}sc-stat-low{% elif (not is_batter and sc.bb_pct <= 6) %}sc-stat-great{% endif %}">{{ sc.bb_pct }}%</span>
+            </div>
+            {% endif %}
+            {% if sc.whiff_pct is not none %}
+            <div class="sc-stat-row">
+              <span class="sc-stat-name">Whiff%</span>
+              <span class="sc-stat-val {% if (is_batter and sc.whiff_pct > 30) %}sc-stat-low{% elif (not is_batter and sc.whiff_pct >= 30) %}sc-stat-great{% elif (not is_batter and sc.whiff_pct >= 22) %}sc-stat-avg{% endif %}">{{ sc.whiff_pct }}%</span>
+            </div>
+            {% endif %}
+            {% if sc.swstr_pct is not none %}
+            <div class="sc-stat-row"><span class="sc-stat-name">SwStr%</span><span class="sc-stat-val">{{ sc.swstr_pct }}%</span></div>
+            {% endif %}
+            {% if sc.chase_pct is not none %}
+            <div class="sc-stat-row">
+              <span class="sc-stat-name">Chase% (O-Swing)</span>
+              <span class="sc-stat-val {% if (is_batter and sc.chase_pct > 34) %}sc-stat-low{% elif (is_batter and sc.chase_pct < 26) %}sc-stat-great{% elif (not is_batter and sc.chase_pct >= 34) %}sc-stat-great{% elif (not is_batter and sc.chase_pct < 26) %}sc-stat-low{% endif %}">{{ sc.chase_pct }}%</span>
+            </div>
+            {% endif %}
+            {% if sc.z_swing_pct is not none %}
+            <div class="sc-stat-row"><span class="sc-stat-name">Z-Swing%</span><span class="sc-stat-val">{{ sc.z_swing_pct }}%</span></div>
+            {% endif %}
+            {% if sc.z_contact_pct is not none %}
+            <div class="sc-stat-row"><span class="sc-stat-name">Z-Contact%</span><span class="sc-stat-val">{{ sc.z_contact_pct }}%</span></div>
+            {% endif %}
+            {% if sc.o_contact_pct is not none %}
+            <div class="sc-stat-row"><span class="sc-stat-name">O-Contact%</span><span class="sc-stat-val">{{ sc.o_contact_pct }}%</span></div>
+            {% endif %}
+            {% if sc.swing_pct is not none %}
+            <div class="sc-stat-row"><span class="sc-stat-name">Swing%</span><span class="sc-stat-val">{{ sc.swing_pct }}%</span></div>
+            {% endif %}
+            {% if sc.zone_pct is not none %}
+            <div class="sc-stat-row"><span class="sc-stat-name">Zone%</span><span class="sc-stat-val">{{ sc.zone_pct }}%</span></div>
+            {% endif %}
+            {% if sc.n_pitches is not none %}
+            <div class="sc-stat-row"><span class="sc-stat-name">Pitches Seen</span><span class="sc-stat-val">{{ sc.n_pitches }}</span></div>
+            {% endif %}
           </div>
-          <span class="sc-pct-label">{{ percentiles.hard_hit_rate }}th</span>
         </div>
-        {% endif %}
-      </div>
-      {% endif %}
 
-      {% if sc_metrics.max_exit_velo %}
-      <div class="sc-metric-row">
-        <div class="sc-metric-info">
-          <span class="sc-metric-name">Max Exit Velocity</span>
-          <span class="sc-metric-value">{{ sc_metrics.max_exit_velo }} mph</span>
-        </div>
-      </div>
-      {% endif %}
-
-      {% if sc_metrics.avg_launch_angle is not none %}
-      <div class="sc-metric-row">
-        <div class="sc-metric-info">
-          <span class="sc-metric-name">Avg Launch Angle</span>
-          <span class="sc-metric-value">{{ sc_metrics.avg_launch_angle }}°</span>
-        </div>
-      </div>
-      {% endif %}
-
-    </div>
-
-    {% elif sc_metrics.position_type == 'P' %}
-
-    {# Pitch arsenal #}
-    {% if sc_metrics.arsenal %}
-    <div class="arsenal-table">
-      <div class="arsenal-header-row">
-        <span>Pitch</span><span>Velo</span><span>Spin</span><span>Usage</span>
-      </div>
-      {% for p in sc_metrics.arsenal %}
-      <div class="arsenal-row">
-        <span class="arsenal-name">{{ p.name }}</span>
-        <span class="arsenal-stat">{{ p.avg_velo }} mph</span>
-        <span class="arsenal-stat">{{ p.avg_spin if p.avg_spin else '—' }} rpm</span>
-        <div class="arsenal-usage">
-          <div class="arsenal-bar" style="width: {{ p.pct }}%"></div>
-          <span>{{ p.pct }}%</span>
-        </div>
-      </div>
-      {% endfor %}
-    </div>
-    {% endif %}
-
-    {% if sc_metrics.avg_ev_against is not none %}
-    <div class="sc-metrics-grid" style="margin-top: 1rem">
-      <div class="sc-metric-row">
-        <div class="sc-metric-info">
-          <span class="sc-metric-name">Exit Velo Against</span>
-          <span class="sc-metric-value">{{ sc_metrics.avg_ev_against }} mph</span>
-        </div>
-        {% if percentiles.ev_against is not none %}
-        <div class="sc-percentile-wrap">
-          <div class="sc-bar-track">
-            <div class="sc-bar-fill {% if percentiles.ev_against >= 70 %}sc-bar-great{% elif percentiles.ev_against >= 45 %}sc-bar-avg{% else %}sc-bar-low{% endif %}"
-                 style="width: {{ percentiles.ev_against }}%"></div>
+        {# Column 3: PA counts or pitch usage summary #}
+        <div class="sc-stat-col">
+          <div class="sc-stat-col-header">{{ 'Season Overview' }}</div>
+          <div class="sc-stat-list">
+            {% if sc.n_pa is not none %}
+            <div class="sc-stat-row"><span class="sc-stat-name">Plate Appearances</span><span class="sc-stat-val">{{ sc.n_pa }}</span></div>
+            {% endif %}
+            {% if sc.n_pa_faced is not none %}
+            <div class="sc-stat-row"><span class="sc-stat-name">Batters Faced</span><span class="sc-stat-val">{{ sc.n_pa_faced }}</span></div>
+            {% endif %}
+            {% if sc.n_pitches is not none %}
+            <div class="sc-stat-row"><span class="sc-stat-name">Total Pitches</span><span class="sc-stat-val">{{ sc.n_pitches }}</span></div>
+            {% endif %}
+            {% if sc.avg_xba is not none and not sc.xba %}
+            <div class="sc-stat-row"><span class="sc-stat-name">Avg xBA (BIP)</span><span class="sc-stat-val">{{ "%.3f"|format(sc.avg_xba)|replace("0.",".") }}</span></div>
+            {% endif %}
+            {% if sc.avg_xwoba is not none and not sc.xwoba %}
+            <div class="sc-stat-row"><span class="sc-stat-name">Avg xwOBA (BIP)</span><span class="sc-stat-val">{{ "%.3f"|format(sc.avg_xwoba)|replace("0.",".") }}</span></div>
+            {% endif %}
+            {# Pitch usage summary for pitchers #}
+            {% if sc.arsenal %}
+            {% for pitch in sc.arsenal[:6] %}
+            <div class="sc-stat-row">
+              <span class="sc-stat-name">{{ pitch.name }}</span>
+              <span class="sc-stat-val">{{ pitch.pct }}%</span>
+            </div>
+            {% endfor %}
+            {% endif %}
           </div>
-          <span class="sc-pct-label">{{ percentiles.ev_against }}th</span>
         </div>
-        {% endif %}
+
+      </div>{# end sc-stat-columns #}
+
+      {# ── Pitcher Arsenal Table ──────────────────────────────── #}
+      {% if not is_batter and sc.arsenal %}
+      <div class="sc-arsenal-full">
+        <div class="sc-stat-col-header">Pitch Arsenal — Full Breakdown</div>
+        <div class="sc-arsenal-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Pitch</th>
+                <th>Usage</th>
+                <th>Velo</th>
+                <th>Max</th>
+                <th>Spin</th>
+                <th>H-Brk</th>
+                <th>V-Brk</th>
+                <th>Ext</th>
+                <th>Whiff%</th>
+                <th>Chase%</th>
+                <th>Avg EV</th>
+                <th>Hard Hit%</th>
+                <th>xwOBA</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for p in sc.arsenal %}
+              <tr>
+                <td class="sc-pitch-name">{{ p.name }}</td>
+                <td>
+                  <div class="sc-usage-wrap">
+                    <div class="sc-usage-bar" style="width:{{ [p.pct * 1.2, 60]|min }}px"></div>
+                    {{ p.pct }}%
+                  </div>
+                </td>
+                <td>{{ "%.1f"|format(p.avg_velo) if p.avg_velo is not none else '—' }}</td>
+                <td>{{ "%.1f"|format(p.max_velo) if p.max_velo is not none else '—' }}</td>
+                <td>{{ p.avg_spin if p.avg_spin is not none else '—' }}</td>
+                <td>{{ ("%.1f"|format(p.h_break) + '"') if p.h_break is not none else '—' }}</td>
+                <td>{{ ("%.1f"|format(p.v_break) + '"') if p.v_break is not none else '—' }}</td>
+                <td>{{ ("%.1f"|format(p.extension) + ' ft') if p.extension is not none else '—' }}</td>
+                <td>{{ (p.whiff_pct|string + '%') if p.whiff_pct is not none else '—' }}</td>
+                <td>{{ (p.chase_pct|string + '%') if p.chase_pct is not none else '—' }}</td>
+                <td>{{ ("%.1f"|format(p.avg_ev_against)) if p.avg_ev_against is not none else '—' }}</td>
+                <td>{{ (p.hard_hit_pct|string + '%') if p.hard_hit_pct is not none else '—' }}</td>
+                <td>{{ "%.3f"|format(p.xwoba)|replace("0.",".") if p.xwoba is not none else '—' }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
       </div>
-    </div>
-    {% endif %}
+      {% endif %}
 
-    {% endif %}
+      {# ── Batter vs Pitch Types ──────────────────────────────── #}
+      {% if is_batter and sc.pitch_breakdown %}
+      <div class="sc-arsenal-full">
+        <div class="sc-stat-col-header">Performance vs Pitch Types</div>
+        <div class="sc-arsenal-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Pitch Type</th>
+                <th>Pitches Seen</th>
+                <th>Seen%</th>
+                <th>Whiff%</th>
+                <th>Avg EV</th>
+                <th>xwOBA</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for p in sc.pitch_breakdown %}
+              <tr>
+                <td class="sc-pitch-name">{{ p.name }}</td>
+                <td>{{ p.n }}</td>
+                <td>{{ p.pct }}%</td>
+                <td>{{ (p.whiff_pct|string + '%') if p.whiff_pct is not none else '—' }}</td>
+                <td>{{ ("%.1f"|format(p.avg_ev)) if p.avg_ev is not none else '—' }}</td>
+                <td>{{ "%.3f"|format(p.xwoba)|replace("0.",".") if p.xwoba is not none else '—' }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      {% endif %}
 
-    <div class="sc-source-note">
-      Data from <a href="https://baseballsavant.mlb.com" target="_blank" rel="noopener">Baseball Savant</a>
-      · {{ sc_metrics.n_batted if sc_metrics.n_batted else sc_metrics.total_pitches }} tracked events · 2026 season
-    </div>
+      <div class="sc-source-note">
+        Data from <a href="https://baseballsavant.mlb.com/savant-player/{{ mlbam_id }}" target="_blank" rel="noopener">Baseball Savant</a>
+        · {{ sc.n_pitches or sc.n_batted or 0 }} pitch events · {{ current_year }} season · Updated daily
+      </div>
+
+    </div>{# sc-full #}
   </div>
   {% endif %}
 

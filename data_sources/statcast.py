@@ -27,6 +27,17 @@ _PITCH_TYPE_NAMES = {
     "CS": "Slow Curve", "SC": "Screwball", "EP": "Eephus",
 }
 
+# Pitch outcome classification
+_SWING_DESCS = frozenset({
+    "swinging_strike", "foul", "foul_tip", "hit_into_play",
+    "hit_into_play_no_out", "hit_into_play_score",
+    "foul_bunt", "missed_bunt", "swinging_strike_blocked",
+    "bunt_foul_tip", "foul_pitchout",
+})
+_WHIFF_DESCS = frozenset({
+    "swinging_strike", "swinging_strike_blocked", "missed_bunt",
+})
+
 
 def pitch_type_name(code: str) -> str:
     return _PITCH_TYPE_NAMES.get(code, code)
@@ -138,73 +149,266 @@ def enrich_plays(game_pk: int, plays: list) -> None:
 # ---------------------------------------------------------------------------
 
 def _agg_batter(df: pd.DataFrame) -> dict:
-    batted = df[df["launch_speed"].notna()]
-    n_bb = len(batted)
-    if n_bb < 5:
+    n_pitches = len(df)
+    if n_pitches < 5:
         return {}
 
     n_pa = int(df["events"].notna().sum())
-    barrels = batted[
-        (batted["launch_speed"] >= 98) & (batted["launch_angle"].between(26, 30))
-    ]
-    hard_hit = batted[batted["launch_speed"] >= 95]
+    batted = df[df["launch_speed"].notna()].copy()
+    n_bb = len(batted)
 
-    return {
-        "position_type": "B",
-        "avg_exit_velo": round(float(batted["launch_speed"].mean()), 1),
-        "max_exit_velo": round(float(batted["launch_speed"].max()), 1),
-        "avg_launch_angle": round(float(batted["launch_angle"].mean()), 1),
-        "barrel_rate": round(len(barrels) / n_bb * 100, 1),
-        "hard_hit_rate": round(len(hard_hit) / n_bb * 100, 1),
-        "n_batted": n_bb,
-        "n_pa": n_pa,
-    }
+    result: dict = {"position_type": "B", "n_pa": n_pa, "n_pitches": n_pitches, "n_batted": n_bb}
 
+    if n_bb >= 5:
+        # ── Exit velocity ──────────────────────────────────────────
+        result["avg_exit_velo"] = round(float(batted["launch_speed"].mean()), 1)
+        result["max_exit_velo"] = round(float(batted["launch_speed"].max()), 1)
 
-def _agg_pitcher(df: pd.DataFrame) -> dict:
-    total = len(df)
-    if total < 10:
-        return {}
+        # ── Launch angle ───────────────────────────────────────────
+        if "launch_angle" in batted.columns and batted["launch_angle"].notna().any():
+            result["avg_launch_angle"] = round(float(batted["launch_angle"].mean()), 1)
 
-    arsenal = []
-    if "pitch_type" in df.columns and "release_speed" in df.columns:
+            # ── Barrels (launch_speed_angle category 6 if available) ──
+            if "launch_speed_angle" in batted.columns:
+                barrel_cnt = int((batted["launch_speed_angle"] == 6).sum())
+            else:
+                barrel_cnt = int(
+                    ((batted["launch_speed"] >= 98) & batted["launch_angle"].between(26, 30)).sum()
+                )
+            result["barrel_count"] = barrel_cnt
+            result["barrel_rate"] = round(barrel_cnt / n_bb * 100, 1)
+
+            # ── Sweet spot (8–32° LA) ──────────────────────────────
+            sweet = int(batted["launch_angle"].between(8, 32).sum())
+            result["sweet_spot_rate"] = round(sweet / n_bb * 100, 1)
+
+            # ── GB / LD / FB / PU rates ────────────────────────────
+            if "bb_type" in batted.columns:
+                bbt = batted["bb_type"].value_counts()
+                for code, key in [("ground_ball", "gb_rate"), ("line_drive", "ld_rate"),
+                                   ("fly_ball", "fb_rate"), ("popup", "pu_rate")]:
+                    result[key] = round(bbt.get(code, 0) / n_bb * 100, 1)
+
+        # ── Hard hit ───────────────────────────────────────────────
+        hh_cnt = int((batted["launch_speed"] >= 95).sum())
+        result["hard_hit_rate"] = round(hh_cnt / n_bb * 100, 1)
+
+        # ── Average distance ───────────────────────────────────────
+        dist_col = next((c for c in ("hit_distance_sc", "hit_distance") if c in batted.columns), None)
+        if dist_col:
+            dist = batted[dist_col].dropna()
+            if len(dist) > 0:
+                result["avg_distance"] = round(float(dist.mean()), 0)
+
+        # ── xBA / xwOBA per batted ball ────────────────────────────
+        for src, key in [("estimated_ba_using_speedangle", "avg_xba"),
+                         ("estimated_woba_using_speedangle", "avg_xwoba")]:
+            if src in batted.columns:
+                vals = batted[src].dropna()
+                if len(vals) > 0:
+                    result[key] = round(float(vals.mean()), 3)
+
+        # ── Spray direction ────────────────────────────────────────
+        if "hc_x" in batted.columns and "stand" in batted.columns:
+            bip = batted[batted["hc_x"].notna() & batted["stand"].notna()]
+            if len(bip) > 0:
+                rhb = bip[bip["stand"] == "R"]
+                lhb = bip[bip["stand"] == "L"]
+                pull = int(((rhb["hc_x"] < 100).sum()) + ((lhb["hc_x"] > 155).sum()))
+                oppo = int(((rhb["hc_x"] > 155).sum()) + ((lhb["hc_x"] < 100).sum()))
+                cent = len(bip) - pull - oppo
+                result["pull_rate"]   = round(pull / len(bip) * 100, 1)
+                result["center_rate"] = round(cent / len(bip) * 100, 1)
+                result["oppo_rate"]   = round(oppo / len(bip) * 100, 1)
+
+    # ── Plate discipline ───────────────────────────────────────────
+    descs = df["description"] if "description" in df.columns else pd.Series(dtype=str)
+    n_swings = int(descs.isin(_SWING_DESCS).sum())
+    n_whiffs  = int(descs.isin(_WHIFF_DESCS).sum())
+    result["swing_pct"]  = round(n_swings / n_pitches * 100, 1) if n_pitches else None
+    result["whiff_pct"]  = round(n_whiffs / n_swings * 100, 1) if n_swings else None
+    result["swstr_pct"]  = round(n_whiffs / n_pitches * 100, 1) if n_pitches else None
+
+    if "zone" in df.columns:
+        zone_s = df["zone"]
+        n_iz = int(zone_s.between(1, 9).sum())
+        n_oz = int(zone_s.between(11, 14).sum())
+        result["zone_pct"] = round(n_iz / n_pitches * 100, 1) if n_pitches else None
+
+        if n_iz > 0:
+            iz_sw = int(df[zone_s.between(1, 9)]["description"].isin(_SWING_DESCS).sum())
+            result["z_swing_pct"] = round(iz_sw / n_iz * 100, 1)
+            iz_con = int(descs[zone_s.between(1, 9)].isin(_SWING_DESCS - _WHIFF_DESCS).sum())
+            result["z_contact_pct"] = round(iz_con / iz_sw * 100, 1) if iz_sw else None
+        if n_oz > 0:
+            oz_sw = int(df[zone_s.between(11, 14)]["description"].isin(_SWING_DESCS).sum())
+            result["chase_pct"] = round(oz_sw / n_oz * 100, 1)
+            oz_con = int(descs[zone_s.between(11, 14)].isin(_SWING_DESCS - _WHIFF_DESCS).sum())
+            result["o_contact_pct"] = round(oz_con / oz_sw * 100, 1) if oz_sw else None
+
+    # ── K% / BB% ──────────────────────────────────────────────────
+    if n_pa > 0:
+        result["k_pct"]  = round(int((df["events"] == "strikeout").sum()) / n_pa * 100, 1)
+        result["bb_pct"] = round(int(df["events"].isin(["walk", "intent_walk"]).sum()) / n_pa * 100, 1)
+
+    # ── Pitch type breakdown (how batter performs vs each pitch) ──
+    breakdown = []
+    if "pitch_type" in df.columns:
         for pt, grp in df.groupby("pitch_type"):
             if not pt or str(pt).lower() in ("nan", "null", ""):
                 continue
-            pct = round(len(grp) / total * 100, 1)
+            n_pt = len(grp)
+            pct = round(n_pt / n_pitches * 100, 1)
             if pct < 1:
                 continue
-            avg_velo = round(float(grp["release_speed"].mean()), 1) if grp["release_speed"].notna().any() else None
-            spin_col = "release_spin_rate"
-            avg_spin = (
-                int(round(float(grp[spin_col].mean())))
-                if spin_col in grp.columns and grp[spin_col].notna().any()
-                else None
-            )
-            arsenal.append({
-                "code": str(pt),
-                "name": pitch_type_name(str(pt)),
-                "pct": pct,
-                "avg_velo": avg_velo,
-                "avg_spin": avg_spin,
-            })
+            g_sw = int(grp["description"].isin(_SWING_DESCS).sum())
+            g_wh = int(grp["description"].isin(_WHIFF_DESCS).sum())
+            g_bip = grp[grp["launch_speed"].notna()]
+            entry = {
+                "code": str(pt), "name": pitch_type_name(str(pt)),
+                "pct": pct, "n": n_pt,
+                "whiff_pct": round(g_wh / g_sw * 100, 1) if g_sw else None,
+                "avg_ev": round(float(g_bip["launch_speed"].mean()), 1) if len(g_bip) > 0 else None,
+            }
+            if "estimated_woba_using_speedangle" in grp.columns:
+                xw = grp["estimated_woba_using_speedangle"].dropna()
+                if len(xw) > 0:
+                    entry["xwoba"] = round(float(xw.mean()), 3)
+            breakdown.append(entry)
+        breakdown.sort(key=lambda x: x["pct"], reverse=True)
+    result["pitch_breakdown"] = breakdown
+
+    return result
+
+
+def _agg_pitcher(df: pd.DataFrame) -> dict:
+    n_pitches = len(df)
+    if n_pitches < 10:
+        return {}
+
+    n_pa = int(df["events"].notna().sum())
+    result: dict = {"position_type": "P", "n_pitches": n_pitches, "n_pa_faced": n_pa}
+
+    # ── Contact quality allowed ────────────────────────────────────
+    batted = df[df["launch_speed"].notna()].copy()
+    n_bip = len(batted)
+    if n_bip > 0:
+        result["avg_ev_against"] = round(float(batted["launch_speed"].mean()), 1)
+        result["max_ev_against"] = round(float(batted["launch_speed"].max()), 1)
+        result["hard_hit_rate"]  = round(int((batted["launch_speed"] >= 95).sum()) / n_bip * 100, 1)
+
+        if "launch_angle" in batted.columns and batted["launch_angle"].notna().any():
+            result["avg_la_against"] = round(float(batted["launch_angle"].mean()), 1)
+            if "launch_speed_angle" in batted.columns:
+                brl = int((batted["launch_speed_angle"] == 6).sum())
+            else:
+                brl = int(
+                    ((batted["launch_speed"] >= 98) & batted["launch_angle"].between(26, 30)).sum()
+                )
+            result["barrel_rate"] = round(brl / n_bip * 100, 1)
+
+        if "bb_type" in batted.columns:
+            bbt = batted["bb_type"].value_counts()
+            for code, key in [("ground_ball", "gb_rate"), ("line_drive", "ld_rate"),
+                               ("fly_ball", "fb_rate"), ("popup", "pu_rate")]:
+                result[key] = round(bbt.get(code, 0) / n_bip * 100, 1)
+
+        for src, key in [("estimated_ba_using_speedangle", "avg_xba_against"),
+                         ("estimated_woba_using_speedangle", "avg_xwoba_against")]:
+            if src in batted.columns:
+                vals = batted[src].dropna()
+                if len(vals) > 0:
+                    result[key] = round(float(vals.mean()), 3)
+
+    # ── Plate discipline ───────────────────────────────────────────
+    descs = df["description"] if "description" in df.columns else pd.Series(dtype=str)
+    n_swings = int(descs.isin(_SWING_DESCS).sum())
+    n_whiffs  = int(descs.isin(_WHIFF_DESCS).sum())
+    result["swing_pct"] = round(n_swings / n_pitches * 100, 1) if n_pitches else None
+    result["whiff_pct"] = round(n_whiffs / n_swings  * 100, 1) if n_swings  else None
+    result["swstr_pct"] = round(n_whiffs / n_pitches * 100, 1) if n_pitches else None
+
+    if "zone" in df.columns:
+        zone_s = df["zone"]
+        n_iz = int(zone_s.between(1, 9).sum())
+        n_oz = int(zone_s.between(11, 14).sum())
+        result["zone_pct"] = round(n_iz / n_pitches * 100, 1) if n_pitches else None
+        if n_oz > 0:
+            oz_sw = int(df[zone_s.between(11, 14)]["description"].isin(_SWING_DESCS).sum())
+            result["chase_pct"] = round(oz_sw / n_oz * 100, 1)
+        if n_iz > 0:
+            iz_sw = int(df[zone_s.between(1, 9)]["description"].isin(_SWING_DESCS).sum())
+            result["z_swing_pct"] = round(iz_sw / n_iz * 100, 1)
+
+    if n_pa > 0:
+        result["k_pct"]  = round(int((df["events"] == "strikeout").sum()) / n_pa * 100, 1)
+        result["bb_pct"] = round(int(df["events"].isin(["walk", "intent_walk"]).sum()) / n_pa * 100, 1)
+
+    # ── Pitch arsenal ──────────────────────────────────────────────
+    arsenal = []
+    if "pitch_type" in df.columns:
+        for pt, grp in df.groupby("pitch_type"):
+            if not pt or str(pt).lower() in ("nan", "null", ""):
+                continue
+            n_pt = len(grp)
+            pct = round(n_pt / n_pitches * 100, 1)
+            if pct < 1:
+                continue
+
+            entry: dict = {
+                "code": str(pt), "name": pitch_type_name(str(pt)),
+                "pct": pct, "n": n_pt,
+            }
+
+            if "release_speed" in grp.columns and grp["release_speed"].notna().any():
+                entry["avg_velo"] = round(float(grp["release_speed"].mean()), 1)
+                entry["max_velo"] = round(float(grp["release_speed"].max()), 1)
+            if "release_spin_rate" in grp.columns and grp["release_spin_rate"].notna().any():
+                entry["avg_spin"] = int(round(float(grp["release_spin_rate"].mean())))
+            if "pfx_x" in grp.columns and grp["pfx_x"].notna().any():
+                entry["h_break"] = round(float(grp["pfx_x"].mean()) * 12, 1)
+            if "pfx_z" in grp.columns and grp["pfx_z"].notna().any():
+                entry["v_break"] = round(float(grp["pfx_z"].mean()) * 12, 1)
+            if "release_extension" in grp.columns and grp["release_extension"].notna().any():
+                entry["extension"] = round(float(grp["release_extension"].mean()), 1)
+
+            g_sw = int(grp["description"].isin(_SWING_DESCS).sum())
+            g_wh = int(grp["description"].isin(_WHIFF_DESCS).sum())
+            entry["whiff_pct"] = round(g_wh / g_sw * 100, 1) if g_sw else None
+
+            if "zone" in grp.columns:
+                n_oz = int(grp["zone"].between(11, 14).sum())
+                if n_oz > 0:
+                    oz_sw = int(grp[grp["zone"].between(11, 14)]["description"].isin(_SWING_DESCS).sum())
+                    entry["chase_pct"] = round(oz_sw / n_oz * 100, 1)
+
+            g_bip = grp[grp["launch_speed"].notna()]
+            if len(g_bip) > 0:
+                entry["avg_ev_against"] = round(float(g_bip["launch_speed"].mean()), 1)
+                entry["hard_hit_pct"] = round(
+                    int((g_bip["launch_speed"] >= 95).sum()) / len(g_bip) * 100, 1
+                )
+
+            if "estimated_woba_using_speedangle" in grp.columns:
+                xw = grp["estimated_woba_using_speedangle"].dropna()
+                if len(xw) > 0:
+                    entry["xwoba"] = round(float(xw.mean()), 3)
+
+            arsenal.append(entry)
         arsenal.sort(key=lambda x: x["pct"], reverse=True)
 
-    batted = df[df["launch_speed"].notna()]
-    avg_ev = round(float(batted["launch_speed"].mean()), 1) if len(batted) > 0 else None
-
-    return {
-        "position_type": "P",
-        "arsenal": arsenal,
-        "avg_ev_against": avg_ev,
-        "total_pitches": total,
-    }
+    result["arsenal"] = arsenal
+    return result
 
 
 def get_player_statcast(mlbam_id: int, year: int = _CURRENT_YEAR) -> dict:
-    """Return aggregated Statcast season metrics for a player. Tries batter then pitcher."""
-    cache_key = f"player_{mlbam_id}_{year}"
-    cached = _cache_get(cache_key, 3600)
+    """
+    Return comprehensive Statcast season metrics for a player.
+    Includes raw aggregation + official Baseball Savant xStats + percentile ranks.
+    Cached 24 hours for daily refresh.
+    """
+    cache_key = f"player_full_{mlbam_id}_{year}"
+    cached = _cache_get(cache_key, 86400)
     if cached is not None:
         return cached
 
@@ -212,21 +416,75 @@ def get_player_statcast(mlbam_id: int, year: int = _CURRENT_YEAR) -> dict:
         import pybaseball as pb
         pb.cache.enable()
 
+        result: dict = {}
+
+        # ── Try batter first ───────────────────────────────────────
         df = pb.statcast_batter(_SEASON_START, _SEASON_END, player_id=mlbam_id)
         if df is not None and not df.empty:
             result = _agg_batter(df)
-            if result:
-                _cache_set(cache_key, result)
-                return result
 
-        df = pb.statcast_pitcher(_SEASON_START, _SEASON_END, player_id=mlbam_id)
-        if df is not None and not df.empty:
-            result = _agg_pitcher(df)
-            if result:
-                _cache_set(cache_key, result)
-                return result
+        # ── Fall back to pitcher ───────────────────────────────────
+        if not result:
+            df = pb.statcast_pitcher(_SEASON_START, _SEASON_END, player_id=mlbam_id)
+            if df is not None and not df.empty:
+                result = _agg_pitcher(df)
 
-        return {}
+        if not result:
+            return {}
+
+        ptype = result.get("position_type", "B")
+
+        # ── Merge official xStats from annual leaderboard ──────────
+        try:
+            if ptype == "B":
+                xstats_list = get_batter_expected_stats(year)
+                xmap = {r["player_id"]: r for r in xstats_list if r.get("player_id")}
+                if mlbam_id in xmap:
+                    xs = xmap[mlbam_id]
+                    result.update({
+                        "xba":        xs.get("xba"),
+                        "xslg":       xs.get("xslg"),
+                        "xwoba":      xs.get("xwoba"),
+                        "xwoba_diff": xs.get("xwoba_diff"),
+                        "xwobacon":   xs.get("xwobacon"),
+                        "xba_diff":   xs.get("xba_diff"),
+                        "woba":       xs.get("woba"),
+                        "ba_official": xs.get("ba"),
+                        "sweet_spot_rate": xs.get("sweet_spot") or result.get("sweet_spot_rate"),
+                    })
+            else:
+                xstats_list = get_pitcher_expected_stats(year)
+                xmap = {r["player_id"]: r for r in xstats_list if r.get("player_id")}
+                if mlbam_id in xmap:
+                    xs = xmap[mlbam_id]
+                    result.update({
+                        "xera":       xs.get("xera"),
+                        "era":        xs.get("era"),
+                        "xera_diff":  xs.get("xera_diff"),
+                        "xba":        xs.get("xba"),
+                        "xba_against": xs.get("xba"),
+                        "xwoba":      xs.get("xwoba"),
+                        "xwoba_diff": xs.get("xwoba_diff"),
+                        "babip":      xs.get("babip"),
+                        "xbabip":     xs.get("xbabip"),
+                    })
+        except Exception as e:
+            log.warning(f"xStats merge for {mlbam_id}: {e}")
+
+        # ── Merge official Savant percentile ranks ─────────────────
+        try:
+            if ptype == "B":
+                pct_list = get_batter_percentiles(year)
+            else:
+                pct_list = get_pitcher_percentiles(year)
+            pct_map = {r["player_id"]: r for r in pct_list if r.get("player_id")}
+            if mlbam_id in pct_map:
+                result["percentiles"] = pct_map[mlbam_id]
+        except Exception as e:
+            log.warning(f"Percentile merge for {mlbam_id}: {e}")
+
+        _cache_set(cache_key, result)
+        return result
 
     except Exception as e:
         log.warning(f"Statcast player {mlbam_id} failed: {e}")

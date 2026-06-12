@@ -336,14 +336,13 @@ def player(mlbam_id):
         mlbam_id, group="hitting,pitching", type="season"
     )
     sc_metrics = sc_module.get_player_statcast(mlbam_id)
-    percentiles = sc_module.compute_percentiles(mlbam_id, sc_metrics) if sc_metrics else {}
 
     return render_template(
         "player.html",
         player=player_info,
         mlbam_id=mlbam_id,
         sc_metrics=sc_metrics,
-        percentiles=percentiles,
+        current_year=sc_module._CURRENT_YEAR,
         pitch_type_name=sc_module.pitch_type_name,
     )
 

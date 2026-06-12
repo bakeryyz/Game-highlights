@@ -153,16 +153,8 @@
 .lb-diff-neu { color: var(--text-3); }
 .lb-actual   { color: var(--text-3); font-size: .75rem; }
 
-/* ── Percentile circles ──────────────────────────────────────────── */
-.pct-dot {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 30px; height: 30px; border-radius: 50%;
-  font-size: .65rem; font-weight: 800; letter-spacing: -.02em; line-height: 1;
-  flex-shrink: 0;
-}
-.pct-great { background: var(--green);   color: #fff; }
-.pct-avg   { background: var(--gold);    color: #fff; }
-.pct-low   { background: var(--surface3); color: var(--text-3); border: 1px solid var(--border2); }
+/* Leaderboard-specific pct-dot overrides (smaller than player page) */
+.pct-circles-lb .pct-dot { width: 30px; height: 30px; font-size: .65rem; }
 
 /* ── Percentile row card ─────────────────────────────────────────── */
 .pct-card {
@@ -523,7 +515,7 @@ function renderPctRows(list) {
     div.innerHTML = `
       <div class="pct-rank">${i + 1}</div>
       <div class="pct-player">${nameHtml}<div class="pct-team">${row.team || ''}</div></div>
-      <div class="pct-circles">${circlesHtml}</div>
+      <div class="pct-circles pct-circles-lb">${circlesHtml}</div>
     `;
     frag.appendChild(div);
   });
