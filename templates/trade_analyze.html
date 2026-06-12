@@ -1,0 +1,223 @@
+{% extends "base.html" %}
+{% block title %}Trade Analyzer — Game Highlights{% endblock %}
+{% block nav_trade %}sidebar-link-active{% endblock %}
+
+{% block content %}
+<div class="ta-shell">
+
+  <!-- Header -->
+  <div class="lb-header">
+    <div class="lb-header-left">
+      <div class="lb-header-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M7 16V4m0 0L3 8m4-4l4 4M17 8v12m0 0l4-4m-4 4l-4-4"/>
+        </svg>
+      </div>
+      <div>
+        <h1 class="lb-title">Trade Analyzer</h1>
+        <p class="lb-subtitle">League-scoring-adjusted player values · Statcast xStats regression signals · Points-per-game valuation</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Input grid -->
+  <div class="ta-input-grid">
+    <div class="ta-input-card ta-input-card--give">
+      <div class="ta-input-label">
+        <span class="ta-badge ta-badge--give">GIVING AWAY</span>
+      </div>
+      <textarea id="give-input" class="ta-textarea" placeholder="One player per line:&#10;Aaron Judge&#10;Gunnar Henderson" rows="5"></textarea>
+    </div>
+
+    <div class="ta-swap-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M7 16V4m0 0L3 8m4-4l4 4M17 8v12m0 0l4-4m-4 4l-4-4"/>
+      </svg>
+    </div>
+
+    <div class="ta-input-card ta-input-card--get">
+      <div class="ta-input-label">
+        <span class="ta-badge ta-badge--get">RECEIVING</span>
+      </div>
+      <textarea id="get-input" class="ta-textarea" placeholder="One player per line:&#10;Mookie Betts&#10;Corbin Burnes" rows="5"></textarea>
+    </div>
+  </div>
+
+  <div class="ta-action-row">
+    <button id="analyze-btn" class="ta-btn-primary" onclick="analyzeTrade()">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+      </svg>
+      Analyze Trade
+    </button>
+    <div id="scoring-badge" class="ta-source-badge" style="display:none"></div>
+  </div>
+
+  <!-- Loading state -->
+  <div id="ta-loading" class="ta-loading" style="display:none">
+    <div class="ta-spinner"></div>
+    <span>Fetching season stats and computing valuations…</span>
+  </div>
+
+  <!-- Results -->
+  <div id="ta-results" style="display:none">
+
+    <!-- Verdict banner -->
+    <div id="ta-verdict" class="ta-verdict"></div>
+
+    <!-- Side-by-side player cards -->
+    <div class="ta-cols">
+      <div class="ta-col">
+        <div class="ta-col-header">
+          <span class="ta-badge ta-badge--give">GIVING AWAY</span>
+          <span id="give-total" class="ta-col-total"></span>
+        </div>
+        <div id="give-cards"></div>
+      </div>
+      <div class="ta-col">
+        <div class="ta-col-header">
+          <span class="ta-badge ta-badge--get">RECEIVING</span>
+          <span id="get-total" class="ta-col-total"></span>
+        </div>
+        <div id="get-cards"></div>
+      </div>
+    </div>
+
+    <!-- Methodology note -->
+    <div class="ta-footnote">
+      PPG = projected fantasy points per game · xStats regression adjusts for luck (xwOBA vs wOBA, xERA vs ERA) ·
+      Sprint speed scales SB projections · Values use your live Yahoo league scoring rules when available.
+    </div>
+
+  </div>
+</div>
+
+<script>
+async function analyzeTrade() {
+  const giveRaw = document.getElementById("give-input").value;
+  const getRaw  = document.getElementById("get-input").value;
+
+  const give = giveRaw.split("\n").map(s => s.trim()).filter(Boolean);
+  const get  = getRaw.split("\n").map(s => s.trim()).filter(Boolean);
+
+  if (!give.length && !get.length) return;
+
+  const btn = document.getElementById("analyze-btn");
+  btn.disabled = true;
+  document.getElementById("ta-loading").style.display  = "flex";
+  document.getElementById("ta-results").style.display  = "none";
+
+  try {
+    const res = await fetch("/api/trade-analyze", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ give, get }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    renderResults(data);
+  } catch (err) {
+    alert("Error: " + err.message);
+  } finally {
+    btn.disabled = false;
+    document.getElementById("ta-loading").style.display = "none";
+  }
+}
+
+function renderResults(data) {
+  // Source badge
+  const badge = document.getElementById("scoring-badge");
+  badge.style.display = "inline-flex";
+  if (data.scoring_source === "yahoo_live") {
+    badge.textContent = "✓ Live Yahoo League Scoring";
+    badge.className = "ta-source-badge ta-source-badge--live";
+  } else {
+    badge.textContent = "Default Scoring Weights";
+    badge.className = "ta-source-badge";
+  }
+
+  // Verdict
+  const v = document.getElementById("ta-verdict");
+  const gap = data.value_gap;
+  if (data.verdict === "ACCEPT") {
+    v.className = "ta-verdict ta-verdict--accept";
+    v.innerHTML = `<strong>ACCEPT</strong> — You gain <strong>${gap.toFixed(1)} PPG</strong> of value`;
+  } else if (data.verdict === "DECLINE") {
+    v.className = "ta-verdict ta-verdict--decline";
+    v.innerHTML = `<strong>DECLINE</strong> — You give up <strong>${Math.abs(gap).toFixed(1)} PPG</strong> of value`;
+  } else {
+    v.className = "ta-verdict ta-verdict--fair";
+    v.innerHTML = `<strong>FAIR TRADE</strong> — Less than 0.5 PPG difference`;
+  }
+
+  // Totals
+  document.getElementById("give-total").textContent = `${data.give_total_ppg.toFixed(1)} PPG`;
+  document.getElementById("get-total").textContent  = `${data.get_total_ppg.toFixed(1)} PPG`;
+
+  // Cards
+  document.getElementById("give-cards").innerHTML = data.give.map(p => playerCard(p, "give")).join("");
+  document.getElementById("get-cards").innerHTML  = data.get.map(p => playerCard(p, "get")).join("");
+
+  document.getElementById("ta-results").style.display = "block";
+  document.getElementById("ta-results").scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+function playerCard(p, side) {
+  if (p.error) {
+    return `<div class="ta-card ta-card--error">
+      <div class="ta-card-name">${esc(p.name)}</div>
+      <div class="ta-card-err">${esc(p.error)}</div>
+    </div>`;
+  }
+
+  const ppg = p.ppg != null ? p.ppg.toFixed(1) : "N/A";
+  const pct = p.percentile != null ? `${p.percentile}th %ile` : "";
+
+  let sigClass = "ta-sig--neutral";
+  if (p.regression_pct > 5)       sigClass = "ta-sig--up";
+  else if (p.regression_pct < -5) sigClass = "ta-sig--down";
+
+  let xstatHtml = "";
+  if (p.xwoba != null && p.woba != null) {
+    const diff = (p.xwoba - p.woba).toFixed(3);
+    const cls = p.xwoba > p.woba ? "ta-xstat--up" : "ta-xstat--down";
+    xstatHtml = `<div class="ta-xstat ${cls}">xwOBA ${p.xwoba.toFixed(3)} vs ${p.woba.toFixed(3)} actual (${diff > 0 ? "+" : ""}${diff})</div>`;
+  } else if (p.xera != null && p.era != null) {
+    const diff = (p.era - p.xera).toFixed(2);
+    const cls = p.era > p.xera ? "ta-xstat--up" : "ta-xstat--down";
+    xstatHtml = `<div class="ta-xstat ${cls}">xERA ${p.xera.toFixed(2)} vs ${p.era.toFixed(2)} actual (${diff > 0 ? "+" : ""}${diff} above xERA)</div>`;
+  }
+
+  const barrelHtml = p.barrel_pct != null
+    ? `<span class="ta-chip">Barrel ${p.barrel_pct.toFixed(1)}%</span>` : "";
+
+  return `<div class="ta-card">
+    <div class="ta-card-top">
+      <div class="ta-card-info">
+        <div class="ta-card-name">${esc(p.name)}</div>
+        <div class="ta-card-meta">${esc(p.position || "—")} · ${esc(p.team || "—")}</div>
+      </div>
+      <div class="ta-card-ppg-wrap">
+        <div class="ta-card-ppg ${p.ppg == null ? 'ta-card-ppg--na' : ''}">${ppg}</div>
+        <div class="ta-card-ppg-lbl">PPG</div>
+      </div>
+    </div>
+    ${xstatHtml}
+    <div class="ta-card-foot">
+      <span class="ta-sig ${sigClass}">${esc(p.signal || "—")}</span>
+      ${pct ? `<span class="ta-chip">${pct}</span>` : ""}
+      ${barrelHtml}
+    </div>
+  </div>`;
+}
+
+function esc(s) {
+  return String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+}
+
+// Allow Ctrl+Enter to submit
+document.addEventListener("keydown", e => {
+  if ((e.ctrlKey || e.metaKey) && e.key === "Enter") analyzeTrade();
+});
+</script>
+{% endblock %}

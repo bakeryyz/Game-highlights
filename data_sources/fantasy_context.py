@@ -16,6 +16,9 @@ import statsapi
 _cache: dict[str, tuple[float, str]] = {}  # key → (timestamp, context_str)
 _CONTEXT_TTL = 900  # 15 minutes
 
+_scoring_cache: dict[str, tuple[float, object]] = {}  # league_id → (ts, ScoringSettings)
+_SCORING_TTL = 3600  # 1 hour
+
 _ABBREV = {
     "ARI": "Arizona Diamondbacks", "ATL": "Atlanta Braves",
     "BAL": "Baltimore Orioles",     "BOS": "Boston Red Sox",
@@ -53,16 +56,29 @@ You have deep knowledge of:
 - Reference specific player names and real stats. Be direct: "Start X because..." or "Pick up Y — they face Z today (ERA 4.21, soft matchup)"
 - Keep responses scannable: bold the key names, use bullet points, give a clear recommendation first
 
+## PLAYER VALUATION SYSTEM — THIS IS YOUR PRIMARY TOOL FOR ALL ADVICE
+A pre-computed valuation table appears in the context under **PLAYER VALUATIONS**. It was calculated using:
+- Baseball Savant Statcast data (xwOBA, barrel%, sprint speed, K%, BB%, whiff%) as the primary inputs
+- Blended with actual season stats weighted by sample size (more PA = more weight on actuals)
+- Multiplied by your league's exact scoring weights to produce **PPG (fantasy points per game)**
+- Regression signals: xwOBA vs wOBA for batters (+ = underperforming → buy-low); xERA vs ERA for pitchers (+ = unlucky → buy-low)
+
+**For EVERY piece of advice — start/sit, trade, waiver pickup — you MUST:**
+1. **Lead with PPG**: cite the player's PPG from the valuation table before any other analysis
+2. **Cite the regression signal**: if xwOBA >> wOBA, say "underperforming true talent — buy-low"; if ERA << xERA, say "lucky — regression risk"
+3. **Use actual numbers**: "Judge is 6.9 PPG with +12% upside signal" not vague language
+4. **Compare PPG to position average**: a 5.5 PPG player at a scarce position is more valuable than a 5.5 PPG at a deep position
+5. **Waiver wire**: sort candidates by PPG, call out upside signals — never recommend a player with lower PPG unless there's a specific matchup or positional reason
+
 ## TRADE ANALYSIS RULES — FOLLOW STRICTLY
 - **Trades must be realistic and fair** — only suggest deals the other manager would actually accept
-- Base trade value on current stats + season production shown in the context, not hypotheticals
-- A top-10 fantasy player is NOT tradeable for a fringe roster player. Match value for value
+- Base trade value on PPG from the valuation table, not subjective impressions
+- A top-10 fantasy player (high PPG) is NOT tradeable for a fringe roster player. Match PPG for PPG
 - Before suggesting a trade, ask: "Would a reasonable, informed manager accept this?" If no, don't suggest it
-- When suggesting a buy-low, explain WHY the player is underperforming (injury, schedule, cold streak) and why you expect improvement
-- When suggesting a sell-high, cite specific stats showing unsustainable performance (BABIP spike, inflated ERA, etc.)
-- Positional scarcity matters — a scarce position player commands a premium
+- When suggesting a buy-low, explain WHY the player is underperforming (xwOBA > wOBA, ERA > xERA) and cite the regression_pct signal
+- When suggesting a sell-high, cite specific stats showing unsustainable performance: ERA << xERA, wOBA >> xwOBA
+- Positional scarcity matters — a scarce position player commands a premium even at equal PPG
 - Always explain what BOTH teams get from the trade and why it makes sense for each side
-- Avoid suggesting trades that require the other manager to give up their best player for your needs
 
 Below is the live snapshot of the user's Yahoo Fantasy league:\n\n"""
 
@@ -79,6 +95,159 @@ def build(provider, force_refresh: bool = False) -> str:
     full = SYSTEM_PREAMBLE + context
     _cache[key] = (time.time(), full)
     return full
+
+
+# ---------------------------------------------------------------------------
+# Live scoring settings (cached 1 hour)
+# ---------------------------------------------------------------------------
+
+def _get_live_scoring_settings(provider):
+    """Return a ScoringSettings built from the Yahoo league's actual point values."""
+    from core.player_valuation import scoring_settings_from_yahoo
+    from core.scoring import ScoringSettings
+
+    league_id = os.getenv("YAHOO_LEAGUE_ID", "default")
+    if league_id in _scoring_cache:
+        ts, settings = _scoring_cache[league_id]
+        if time.time() - ts < _SCORING_TTL:
+            return settings
+
+    try:
+        resp = provider._lg.sc.session.get(
+            f"https://fantasysports.yahooapis.com/fantasy/v2/league/{league_id}/settings",
+            params={"format": "json"},
+        )
+        data = resp.json()["fantasy_content"]["league"][1]["settings"]
+        if isinstance(data, list):
+            data = data[0]
+        modifiers = data.get("stat_modifiers", {}).get("stats", [])
+        settings = scoring_settings_from_yahoo(modifiers)
+    except Exception:
+        settings = ScoringSettings.default()
+
+    _scoring_cache[league_id] = (time.time(), settings)
+    return settings
+
+
+def _fmt_weight_summary(settings) -> str:
+    """One-line scoring weight summary for the AI context header."""
+    w = settings.weights
+    bat = []
+    if w.get("homeRuns"):       bat.append(f"HR={w['homeRuns']:+g}")
+    if w.get("rbi"):            bat.append(f"RBI={w['rbi']:+g}")
+    if w.get("runs"):           bat.append(f"R={w['runs']:+g}")
+    if w.get("stolenBases"):    bat.append(f"SB={w['stolenBases']:+g}")
+    if w.get("singles"):        bat.append(f"1B={w['singles']:+g}")
+    if w.get("strikeouts_batter"): bat.append(f"K={w['strikeouts_batter']:+g}")
+    pit = []
+    if w.get("inningsPitched"):     pit.append(f"IP={w['inningsPitched']:+g}")
+    if w.get("strikeouts_pitched"): pit.append(f"K={w['strikeouts_pitched']:+g}")
+    if w.get("earnedRuns"):         pit.append(f"ER={w['earnedRuns']:+g}")
+    if w.get("wins"):               pit.append(f"W={w['wins']:+g}")
+    if w.get("saves"):              pit.append(f"SV={w['saves']:+g}")
+    return f"BAT [{', '.join(bat)}]  PITCH [{', '.join(pit)}]"
+
+
+# ---------------------------------------------------------------------------
+# Player valuation section (roster-wide, xStats-regression-adjusted)
+# ---------------------------------------------------------------------------
+
+def _fmt_valuations(players: list, settings) -> str:
+    """
+    Fetch season stats for each roster player, cross-reference Statcast expected
+    stats, compute league-adjusted PPG, and return a formatted AI context section.
+    """
+    from data_sources.statcast import build_batter_statcast_map, build_pitcher_statcast_map
+    from core.player_valuation import value_batter, value_pitcher, assign_percentiles
+
+    batter_sc  = build_batter_statcast_map()
+    pitcher_sc = build_pitcher_statcast_map()
+
+    # Map name → (mlbam_id, is_pitcher, is_sp)
+    player_meta: dict[str, tuple] = {}
+    for p in players:
+        if p.mlbam_id:
+            is_pitcher = p.lineup_slot in ("SP", "RP", "P")
+            is_sp = p.lineup_slot == "SP"
+            player_meta[p.name] = (int(p.mlbam_id), is_pitcher, is_sp)
+
+    def _fetch(mlbam_id: int, is_pitcher: bool) -> dict:
+        group = "pitching" if is_pitcher else "hitting"
+        try:
+            data = statsapi.player_stat_data(mlbam_id, group=group, type="season")
+            for sg in data.get("stats", []):
+                if sg.get("group") == group and sg.get("stats"):
+                    return sg["stats"]
+        except Exception:
+            pass
+        return {}
+
+    # Parallel stat fetch
+    season_stats: dict[str, dict] = {}
+    with ThreadPoolExecutor(max_workers=10) as ex:
+        futs = {
+            ex.submit(_fetch, mid, is_pitcher): name
+            for name, (mid, is_pitcher, _) in player_meta.items()
+        }
+        for fut in as_completed(futs):
+            name = futs[fut]
+            try:
+                season_stats[name] = fut.result(timeout=10)
+            except Exception:
+                season_stats[name] = {}
+
+    # Compute valuations
+    val_list: list[tuple[str, object]] = []
+    player_slot: dict[str, str] = {p.name: p.lineup_slot for p in players}
+
+    for name, (mid, is_pitcher, is_sp) in player_meta.items():
+        s = season_stats.get(name, {})
+        sc = pitcher_sc.get(mid) if is_pitcher else batter_sc.get(mid)
+        val = value_pitcher(s, sc, settings, is_sp=is_sp) if is_pitcher \
+              else value_batter(s, sc, settings)
+        if val:
+            val_list.append((name, val))
+
+    if not val_list:
+        return "## PLAYER VALUATIONS\n(Insufficient data — season stats unavailable)"
+
+    assign_percentiles(val_list)
+    val_list.sort(key=lambda x: x[1].ppg, reverse=True)
+
+    lines = [
+        "## PLAYER VALUATIONS (League-Scoring-Adjusted, xStats-Regression-Corrected)",
+        f"Scoring applied: {_fmt_weight_summary(settings)}",
+        "",
+        "### MY ROSTER — Ranked by Projected PPG",
+        "| Rank | Player | Slot | PPG | Signal | %ile | xStat vs Actual |",
+        "|------|--------|------|-----|--------|------|-----------------|",
+    ]
+
+    for rank, (name, val) in enumerate(val_list, 1):
+        slot = player_slot.get(name, "—")
+        pct = f"{val.percentile}th" if val.percentile is not None else "—"
+        if val.xwoba is not None and val.woba is not None:
+            xstat = f"xwOBA {val.xwoba:.3f} / {val.woba:.3f} actual"
+        elif val.xera is not None and val.era is not None:
+            xstat = f"xERA {val.xera:.2f} / {val.era:.2f} actual"
+        else:
+            xstat = "—"
+        lines.append(f"| {rank} | {name} | {slot} | {val.ppg:.1f} | {val.signal_label()} | {pct} | {xstat} |")
+
+    sell = [(n, v) for n, v in val_list if v.regression_pct < -10]
+    buy  = [(n, v) for n, v in val_list if v.regression_pct > 10]
+
+    if sell:
+        lines += ["", "**SELL-HIGH** (outperforming xStats — regression risk):"]
+        for n, v in sell:
+            lines.append(f"  - {n}: {v.regression_pct:.1f}% above expected — consider trading")
+
+    if buy:
+        lines += ["", "**BUY-LOW** (underperforming xStats — breakout expected):"]
+        for n, v in buy:
+            lines.append(f"  - {n}: +{v.regression_pct:.1f}% upside remaining — hold or acquire")
+
+    return "\n".join(lines)
 
 
 def _assemble(provider) -> str:
@@ -114,9 +283,17 @@ def _assemble(provider) -> str:
     except Exception as e:
         parts.append(f"## STATCAST DATA\nUnavailable: {e}")
 
+    # ── League-adjusted player valuations ────────────────────────
+    try:
+        settings = _get_live_scoring_settings(provider)
+        parts.append(_fmt_valuations(all_my_players, settings))
+    except Exception as e:
+        parts.append(f"## PLAYER VALUATIONS\nUnavailable: {e}")
+
     # ── Waiver wire / free agents ─────────────────────────────────
     try:
-        parts.append(_get_free_agents_section(provider))
+        settings = _get_live_scoring_settings(provider)
+        parts.append(_get_free_agents_section(provider, settings))
     except Exception as e:
         parts.append(f"## WAIVER WIRE\nUnavailable: {e}")
 
@@ -440,12 +617,21 @@ def _fmt_batter_stats(stats: dict) -> str:
     return f"AVG {avg_s} | {hr} HR | {rbi} RBI | {r} R | {sb} SB"
 
 
-def _get_free_agents_section(provider) -> str:
-    """Fetch top available pitchers and hitters from Yahoo and format for AI context."""
+def _get_free_agents_section(provider, settings=None) -> str:
+    """Fetch top available pitchers and hitters from Yahoo, sorted by league-adjusted PPG."""
+    from core.player_valuation import value_batter, value_pitcher, assign_percentiles
+    from data_sources.statcast import build_batter_statcast_map, build_pitcher_statcast_map
+
     league_id = os.getenv("YAHOO_LEAGUE_ID", "")
+    # Estimated games played this season so PPG = total_pts / games
+    _GP = 73
+
+    # Statcast lookup by name (lowercase) for regression signals — merged maps so
+    # xwOBA (via percentile proxy), barrel_pct, sprint_speed all populate
+    sc_batter_by_name  = {r["name"].lower(): r for r in build_batter_statcast_map().values()  if r.get("name")}
+    sc_pitcher_by_name = {r["name"].lower(): r for r in build_pitcher_statcast_map().values() if r.get("name")}
 
     def fetch(position: str, count: int = 25) -> list[dict]:
-        # status=A means available (free agents + waivers); status=FW is not valid
         url = (
             f"https://fantasysports.yahooapis.com/fantasy/v2/"
             f"league/{league_id}/players;status=A;position={position};"
@@ -462,22 +648,51 @@ def _get_free_agents_section(provider) -> str:
                 name = next((x["name"]["full"] for x in info if isinstance(x, dict) and "name" in x), "?")
                 team = next((x["editorial_team_abbr"] for x in info if isinstance(x, dict) and "editorial_team_abbr" in x), "?")
                 pos  = next((x["display_position"] for x in info if isinstance(x, dict) and "display_position" in x), "?")
-                # Stats are in pdata[1] as player_stats + player_points
                 stats = _parse_yahoo_player_stats(pdata)
                 out.append({"name": name, "team": team, "pos": pos, "stats": stats})
             except Exception:
                 continue
         return out
 
-    lines = ["## WAIVER WIRE / FREE AGENTS (Available in Your League)"]
+    def _ppg_from_pts(stats: dict) -> float | None:
+        pts = stats.get("_pts")
+        return round(pts / _GP, 2) if pts else None
+
+    def _regression_signal(name: str, is_pitcher: bool) -> str:
+        sc = sc_pitcher_by_name.get(name.lower()) if is_pitcher else sc_batter_by_name.get(name.lower())
+        if not sc:
+            return ""
+        if is_pitcher:
+            xera, era = sc.get("xera"), sc.get("era")
+            if xera and era and era > 0:
+                pct = round((era - xera) / era * 50, 1)
+                if pct > 8:
+                    return f" ↑{pct:+.0f}% upside"
+                if pct < -8:
+                    return f" ↓{pct:.0f}% risk"
+        else:
+            xwoba, woba = sc.get("xwoba"), sc.get("woba")
+            if xwoba and woba and woba > 0.05:
+                pct = round((xwoba - woba) / woba * 50, 1)
+                if pct > 8:
+                    return f" ↑{pct:+.0f}% upside"
+                if pct < -8:
+                    return f" ↓{pct:.0f}% risk"
+        return ""
+
+    lines = ["## WAIVER WIRE / FREE AGENTS (Available in Your League, Sorted by PPG)"]
 
     # ── Pitchers ──────────────────────────────────────────────────
     try:
         pitchers = fetch("SP,RP", 25)
+        for p in pitchers:
+            p["_ppg"] = _ppg_from_pts(p["stats"]) or 0.0
+        pitchers.sort(key=lambda x: x["_ppg"], reverse=True)
+
         lines += [
             "\n### Available Pitchers",
-            "| Player | Team | Pos | ERA | WHIP | IP | K | W | SV |",
-            "|--------|------|-----|-----|------|----|---|---|----|",
+            "| Player | Team | Pos | PPG | ERA | WHIP | IP | K | W | SV | Signal |",
+            "|--------|------|-----|-----|-----|------|----|---|---|----|--------|",
         ]
         for p in pitchers:
             s = p["stats"]
@@ -490,14 +705,18 @@ def _get_free_agents_section(provider) -> str:
             whip = s.get("50")
             if whip is None and ip and "36" in s and "39" in s:
                 whip = round((s["36"] + s["39"]) / ip, 2)
+            ppg_s = f"{p['_ppg']:.1f}" if p["_ppg"] else "—"
+            sig = _regression_signal(p["name"], is_pitcher=True)
             lines.append(
                 f"| {p['name']} | {p['team']} | {p['pos']} "
+                f"| {ppg_s} "
                 f"| {f'{era:.2f}' if era is not None else '—'} "
                 f"| {f'{whip:.2f}' if whip is not None else '—'} "
                 f"| {ip_str} "
                 f"| {int(s['42']) if '42' in s else '—'} "
                 f"| {int(s['28']) if '28' in s else '—'} "
-                f"| {int(s['32']) if '32' in s else '—'} |"
+                f"| {int(s['32']) if '32' in s else '—'} "
+                f"| {sig.strip() or '—'} |"
             )
     except Exception as e:
         lines.append(f"Pitchers: unavailable ({e})")
@@ -505,10 +724,14 @@ def _get_free_agents_section(provider) -> str:
     # ── Position players ──────────────────────────────────────────
     try:
         batters = fetch("1B,2B,3B,SS,OF,C", 20)
+        for p in batters:
+            p["_ppg"] = _ppg_from_pts(p["stats"]) or 0.0
+        batters.sort(key=lambda x: x["_ppg"], reverse=True)
+
         lines += [
             "\n### Available Position Players",
-            "| Player | Team | Pos | AVG | HR | RBI | R | SB |",
-            "|--------|------|-----|-----|----|-----|---|----|",
+            "| Player | Team | Pos | PPG | AVG | HR | RBI | R | SB | Signal |",
+            "|--------|------|-----|-----|-----|----|-----|---|----|--------|",
         ]
         for p in batters:
             s = p["stats"]
@@ -516,13 +739,17 @@ def _get_free_agents_section(provider) -> str:
             if avg is None and "8" in s and "14" in s and s.get("14", 0) > 0:
                 avg = round(s["8"] / s["14"], 3)
             avg_s = f".{int(float(avg) * 1000):03d}" if avg is not None else "—"
+            ppg_s = f"{p['_ppg']:.1f}" if p["_ppg"] else "—"
+            sig = _regression_signal(p["name"], is_pitcher=False)
             lines.append(
                 f"| {p['name']} | {p['team']} | {p['pos']} "
+                f"| {ppg_s} "
                 f"| {avg_s} "
                 f"| {int(s['12']) if '12' in s else '—'} "
                 f"| {int(s['13']) if '13' in s else '—'} "
                 f"| {int(s['7'])  if '7'  in s else '—'} "
-                f"| {int(s['16']) if '16' in s else '—'} |"
+                f"| {int(s['16']) if '16' in s else '—'} "
+                f"| {sig.strip() or '—'} |"
             )
     except Exception as e:
         lines.append(f"Position players: unavailable ({e})")

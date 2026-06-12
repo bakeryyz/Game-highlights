@@ -306,6 +306,145 @@ def api_chat():
     )
 
 
+@app.route("/trade-analyze")
+def trade_analyze_page():
+    return render_template("trade_analyze.html")
+
+
+@app.route("/api/trade-analyze", methods=["POST"])
+def api_trade_analyze():
+    from concurrent.futures import ThreadPoolExecutor, as_completed as _as_completed
+    from core.player_valuation import scoring_settings_from_yahoo, value_batter, value_pitcher
+    from core.scoring import ScoringSettings
+
+    data = request.get_json(force=True)
+    give_names = data.get("give", [])
+    get_names = data.get("get", [])
+    if not give_names and not get_names:
+        return jsonify({"error": "No players provided"}), 400
+
+    # Scoring settings — try Yahoo live, fall back to defaults
+    scoring_source = "default"
+    settings = ScoringSettings.default()
+    try:
+        from data_sources.fantasy.base import get_provider
+        provider = get_provider()
+        league_id = os.getenv("YAHOO_LEAGUE_ID", "")
+        resp = provider._lg.sc.session.get(
+            f"https://fantasysports.yahooapis.com/fantasy/v2/league/{league_id}/settings",
+            params={"format": "json"},
+        )
+        raw = resp.json()["fantasy_content"]["league"][1]["settings"]
+        if isinstance(raw, list):
+            raw = raw[0]
+        modifiers = raw.get("stat_modifiers", {}).get("stats", [])
+        settings = scoring_settings_from_yahoo(modifiers)
+        scoring_source = "yahoo_live"
+    except Exception:
+        pass
+
+    # Statcast lookup maps — merged from all 4 Savant endpoints
+    batter_sc  = sc_module.build_batter_statcast_map()
+    pitcher_sc = sc_module.build_pitcher_statcast_map()
+
+    def evaluate(name: str) -> dict:
+        name = name.strip()
+        try:
+            players = statsapi.lookup_player(name, sportId=1)
+        except Exception:
+            players = []
+        if not players:
+            # Last-name-only fallback (handles e.g. "Burnes" when full name fails)
+            last = name.split()[-1]
+            try:
+                players = statsapi.lookup_player(last, sportId=1)
+            except Exception:
+                players = []
+            if len(players) > 1:
+                # Prefer players with an active current team
+                active = [p for p in players if p.get("currentTeam")]
+                if active:
+                    players = active[:1]
+        if not players:
+            return {"name": name, "error": "Player not found", "ppg": None}
+
+        p = players[0]
+        mlbam_id = p["id"]
+        pos = p.get("primaryPosition", {}).get("abbreviation", "")
+        is_pitcher = pos in ("SP", "RP", "P", "LHP", "RHP")
+        is_sp = pos == "SP"
+
+        group = "pitching" if is_pitcher else "hitting"
+        season_stats = {}
+        try:
+            stat_data = statsapi.player_stat_data(mlbam_id, group=group, type="season")
+            for sg in stat_data.get("stats", []):
+                if sg.get("group") == group and sg.get("stats"):
+                    season_stats = sg["stats"]
+                    break
+        except Exception:
+            pass
+
+        sc_data = pitcher_sc.get(mlbam_id) if is_pitcher else batter_sc.get(mlbam_id)
+        val = (value_pitcher(season_stats, sc_data, settings, is_sp=is_sp)
+               if is_pitcher else value_batter(season_stats, sc_data, settings))
+
+        result = {
+            "name": p.get("fullName", name),
+            "mlbam_id": mlbam_id,
+            "position": pos,
+            "team": (p.get("currentTeam") or {}).get("abbreviation", ""),
+            "ppg": val.ppg if val else None,
+            "regression_pct": val.regression_pct if val else None,
+            "signal": val.signal_label() if val else "Insufficient data",
+            "xwoba": val.xwoba if val else None,
+            "woba": val.woba if val else None,
+            "xera": val.xera if val else None,
+            "era": val.era if val else None,
+            "barrel_pct": val.barrel_pct if val else None,
+            "percentile": None,
+        }
+        return result
+
+    all_names = list(dict.fromkeys(give_names + get_names))  # dedupe, preserve order
+    evaluated: dict[str, dict] = {}
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        futs = {ex.submit(evaluate, n): n for n in all_names}
+        for fut in _as_completed(futs):
+            n = futs[fut]
+            try:
+                evaluated[n] = fut.result(timeout=20)
+            except Exception as e:
+                evaluated[n] = {"name": n, "error": str(e), "ppg": None}
+
+    give_results = [evaluated.get(n, {"name": n, "error": "unknown", "ppg": None}) for n in give_names]
+    get_results  = [evaluated.get(n, {"name": n, "error": "unknown", "ppg": None}) for n in get_names]
+
+    # Assign simple percentiles within this trade's player pool
+    all_results = give_results + get_results
+    ppgs = sorted(r["ppg"] for r in all_results if r.get("ppg") is not None)
+    n_pool = len(ppgs)
+    for r in all_results:
+        if r.get("ppg") is not None and n_pool:
+            r["percentile"] = round(sum(1 for v in ppgs if v < r["ppg"]) / n_pool * 100)
+
+    give_ppg = sum(r.get("ppg") or 0 for r in give_results)
+    get_ppg  = sum(r.get("ppg") or 0 for r in get_results)
+    gap = get_ppg - give_ppg
+
+    verdict = "FAIR" if abs(gap) < 0.5 else ("ACCEPT" if gap > 0 else "DECLINE")
+
+    return jsonify({
+        "give": give_results,
+        "get": get_results,
+        "give_total_ppg": round(give_ppg, 2),
+        "get_total_ppg": round(get_ppg, 2),
+        "value_gap": round(gap, 2),
+        "verdict": verdict,
+        "scoring_source": scoring_source,
+    })
+
+
 @app.route("/statcast")
 def statcast_page():
     return render_template("statcast.html", current_year=sc_module._CURRENT_YEAR)

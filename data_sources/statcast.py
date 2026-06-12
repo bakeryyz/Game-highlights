@@ -843,6 +843,92 @@ def get_pitcher_percentiles(year: int = _CURRENT_YEAR) -> list[dict]:
         return []
 
 
+def build_batter_statcast_map(year: int = _CURRENT_YEAR) -> dict[int, dict]:
+    """
+    Merge all batter Statcast sources into a single lookup by player_id.
+
+    Sources combined:
+      get_batter_expected_stats() → wOBA, xwOBA (when available), BA, SLG
+      get_batter_leaderboard()    → barrel_pct, avg_ev, hard_hit (actual values)
+      get_speed_leaderboard()     → sprint_speed in ft/s
+      get_batter_percentiles()    → k_pct/bb_pct/xwOBA as 0-100 Savant ranks
+    """
+    merged: dict[int, dict] = {}
+
+    for r in get_batter_expected_stats(year):
+        pid = r.get("player_id")
+        if pid:
+            merged[pid] = dict(r)
+
+    for r in get_batter_leaderboard(year):
+        pid = r.get("player_id")
+        if pid:
+            entry = merged.setdefault(pid, {"player_id": pid, "name": r.get("name")})
+            for k in ("barrel_pct", "avg_ev", "hard_hit"):
+                if r.get(k) is not None:
+                    entry[k] = r[k]
+
+    for r in get_speed_leaderboard(year):
+        pid = r.get("player_id")
+        if pid:
+            entry = merged.setdefault(pid, {"player_id": pid, "name": r.get("name")})
+            if r.get("sprint_speed") is not None:
+                entry["sprint_speed"] = r["sprint_speed"]
+
+    for r in get_batter_percentiles(year):
+        pid = r.get("player_id")
+        if pid:
+            entry = merged.setdefault(pid, {"player_id": pid, "name": r.get("name", "")})
+            # Savant percentile ranks (0-100) — store with _rank suffix
+            for k in ("xwoba", "brl_percent", "hard_hit", "sprint_speed",
+                      "k_pct", "bb_pct", "whiff", "exit_velocity"):
+                if r.get(k) is not None:
+                    entry[f"{k}_rank"] = r[k]
+            # xwOBA rank can proxy for xwOBA when actual value is missing
+            if r.get("xwoba") is not None and entry.get("xwoba") is None:
+                # Convert percentile rank → approximate xwOBA
+                # League range ~.250-.450; 50th pct ≈ .315 (avg)
+                entry["xwoba"] = round(0.250 + (r["xwoba"] / 100) * 0.200, 3)
+
+    return merged
+
+
+def build_pitcher_statcast_map(year: int = _CURRENT_YEAR) -> dict[int, dict]:
+    """
+    Merge all pitcher Statcast sources into a single lookup by player_id.
+
+    Sources combined:
+      get_pitcher_expected_stats() → xERA, ERA, xwOBA allowed, barrel_pct
+      get_pitcher_leaderboard()    → avg_ev against, hard_hit against
+      get_pitcher_percentiles()    → K%, BB%, whiff% as Savant ranks
+    """
+    merged: dict[int, dict] = {}
+
+    for r in get_pitcher_expected_stats(year):
+        pid = r.get("player_id")
+        if pid:
+            merged[pid] = dict(r)
+
+    for r in get_pitcher_leaderboard(year):
+        pid = r.get("player_id")
+        if pid:
+            entry = merged.setdefault(pid, {"player_id": pid, "name": r.get("name")})
+            for k in ("barrel_pct", "avg_ev", "hard_hit"):
+                if r.get(k) is not None:
+                    entry[k] = r[k]
+
+    for r in get_pitcher_percentiles(year):
+        pid = r.get("player_id")
+        if pid:
+            entry = merged.setdefault(pid, {"player_id": pid, "name": r.get("name", "")})
+            for k in ("k_pct", "bb_pct", "whiff", "xwoba", "brl_percent",
+                      "hard_hit", "exit_velocity"):
+                if r.get(k) is not None:
+                    entry[f"{k}_rank"] = r[k]
+
+    return merged
+
+
 def get_statcast_context_for_roster(players: list) -> str:
     """
     Build a Statcast section string for the AI context.
