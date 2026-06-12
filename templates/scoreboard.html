@@ -32,35 +32,38 @@
       {% for g in games %}
       <a class="game-card {% if g.status == 'In Progress' %}game-card-live{% endif %}" href="/game/{{ g.game_id }}">
 
-        <div class="game-status">
+        <div class="gc-status">
           {% if g.status == 'Final' %}
-            <span class="status-final">Final</span>
+            <span class="gc-pill gc-final">Final</span>
           {% elif g.status == 'In Progress' %}
-            <span class="status-live"><span class="live-dot"></span>Live</span>
+            <span class="gc-pill gc-live"><span class="live-dot"></span>Live</span>
           {% else %}
-            <span class="status-time">{{ g.local_time }} {{ tz_name }}</span>
+            <span class="gc-time">{{ g.local_time }} <span class="gc-tz">{{ tz_name }}</span></span>
           {% endif %}
         </div>
 
-        <div class="game-matchup">
-          <div class="game-team {% if g.status == 'Final' and g.away_score > g.home_score %}team-winner{% endif %}">
-            <img class="team-logo" src="https://midfield.mlbstatic.com/v1/team/{{ g.away_id }}/spots/96" alt="{{ g.away_name }}">
-            <span class="team-city">{{ g.away_name }}</span>
+        <div class="gc-teams">
+          <div class="gc-team {% if g.status == 'Final' and g.away_score > g.home_score %}gc-winner{% endif %}">
+            <img class="gc-logo" src="https://midfield.mlbstatic.com/v1/team/{{ g.away_id }}/spots/96" alt="{{ g.away_name }}">
+            <span class="gc-name">{{ g.away_name }}</span>
             {% if g.status in ['Final', 'In Progress'] %}
-            <span class="team-score-sb">{{ g.away_score }}</span>
+            <span class="gc-score">{{ g.away_score }}</span>
             {% endif %}
           </div>
-          <div class="game-team {% if g.status == 'Final' and g.home_score > g.away_score %}team-winner{% endif %}">
-            <img class="team-logo" src="https://midfield.mlbstatic.com/v1/team/{{ g.home_id }}/spots/96" alt="{{ g.home_name }}">
-            <span class="team-city">{{ g.home_name }}</span>
+          <div class="gc-team {% if g.status == 'Final' and g.home_score > g.away_score %}gc-winner{% endif %}">
+            <img class="gc-logo" src="https://midfield.mlbstatic.com/v1/team/{{ g.home_id }}/spots/96" alt="{{ g.home_name }}">
+            <span class="gc-name">{{ g.home_name }}</span>
             {% if g.status in ['Final', 'In Progress'] %}
-            <span class="team-score-sb">{{ g.home_score }}</span>
+            <span class="gc-score">{{ g.home_score }}</span>
             {% endif %}
           </div>
         </div>
 
         {% if g.status == 'Final' %}
-        <div class="game-footer">View highlights →</div>
+        <div class="gc-footer">
+          View Highlights
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+        </div>
         {% endif %}
 
       </a>

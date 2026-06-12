@@ -65,7 +65,7 @@
 
     <div class="recap-section">
       <button class="recap-btn" id="recap-btn" onclick="loadRecap({{ game.game_id }})">
-        📝 Generate AI Recap
+        Generate AI Recap
       </button>
       <div id="recap-text" class="recap-text" style="display:none"></div>
     </div>
@@ -73,7 +73,7 @@
     <div class="controls">
       <label class="toggle-label">
         <input type="checkbox" id="highlights-toggle" onchange="toggleHighlights()">
-        ⭐ Highlights only
+        Highlights only
       </label>
     </div>
 
@@ -85,7 +85,7 @@
         <div class="play-main">
           <div class="play-score">{{ item.play.score_label }}</div>
           <div class="play-description">
-            {% if item.is_flagged %}⭐ <strong>{{ item.play.description }}</strong>{% else %}{{ item.play.description }}{% endif %}
+            {% if item.is_flagged %}<strong>{{ item.play.description }}</strong>{% else %}{{ item.play.description }}{% endif %}
           </div>
           {% if item.play.video_url %}
           <button class="watch-btn" onclick="toggleVideo(this, '{{ item.play.video_url }}')">▶ Watch</button>
@@ -178,7 +178,7 @@
         html += `<div class="inning-header">${p.inning_label}</div>`;
       }
       const flagClass = p.is_flagged ? 'play-highlight' : '';
-      const desc = p.is_flagged ? `⭐ <strong>${p.description}</strong>` : p.description;
+      const desc = p.is_flagged ? `<strong>${p.description}</strong>` : p.description;
       const reasons = p.is_flagged ? `<div class="play-reasons">${p.reasons.map(r => `<span class="reason-tag">${r}</span>`).join('')}</div>` : '';
       const watchBtn = p.video_url ? `<button class="watch-btn" onclick="toggleVideo(this, '${p.video_url}')">▶ Watch</button>` : '';
       html += `<div class="play ${flagClass}" data-highlight="${p.is_flagged}">
