@@ -1,10 +1,12 @@
 MLB-StatsAPI
 flask
 anthropic
+groq
 python-dotenv
+pandas
+pybaseball
+requests
 pytest
 yahoo_fantasy_api
 yahoo_oauth
 baseball_id
-streamlit
-streamlit-autorefresh
